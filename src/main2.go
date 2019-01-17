@@ -2,33 +2,74 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"sync/atomic"
 	"time"
 )
 
 // 模拟 rpc
 
-var rpcs = make(map[int32] chan interface{})
-var rpcInc = int32(0)
+var recvSerial = int32(0)
 
-func SendXxx(pkg interface{}, timeout time.Duration) (r interface{}) {
-	serial := atomic.AddInt32(&rpcInc, int32(1))
+type TcpPeer struct {
+	net.Conn
+	rpcs map[int32] chan interface{}
+	rpcInc int32
+	disposed bool
+}
+
+func (zs *TcpPeer) Init() {
+	zs.rpcs = make(map[int32] chan interface{})
+}
+
+func (zs *TcpPeer) SendXxx(pkg interface{}, timeout time.Duration) (r interface{}) {
+	serial := atomic.AddInt32(&zs.rpcInc, int32(1))
+
+	// sim send
+	recvSerial = serial
+
 	c := make(chan interface{})
-	rpcs[serial] = c
+	zs.rpcs[serial] = c
 	t := time.NewTimer(timeout)
 	select {
 		case <- t.C:
-//			r = nil
-		case v := <- c:
-			r = v
+		case r = <- c:
 	}
+	delete(zs.rpcs, serial)
 	return
 }
 
-func main() {
-	rtv := SendXxx(nil, time.Second)
-	fmt.Println(rtv)
+// sim recv
+func (zs *TcpPeer) RecvXxx(serial int32, pkg interface{}) {
+	if v, found := zs.rpcs[serial]; found {
+		v <- pkg
+	}
 }
+
+func main() {
+
+	// sim got conn
+	peer := &TcpPeer{}
+	peer.Init()
+
+	go func() {
+		rtv := peer.SendXxx(nil, time.Second)
+		fmt.Println(rtv)
+	}()
+
+	go func() {
+		peer.RecvXxx(recvSerial, 123)
+		time.Sleep(time.Millisecond * 500)
+		// sim recv
+	}()
+
+	time.Sleep(time.Second * 2)
+}
+
+
+
+
+
 
 
 //
@@ -79,3 +120,20 @@ func main() {
 //	x, y := <-c, <-c // receive from c
 //	fmt.Println(x, y, x+y)
 //}
+
+/*
+func test1() {
+	var wg sync.WaitGroup
+	wg.Add(1000)
+	ticker := time.NewTicker(time.Microsecond * 1)
+	lastTime := time.Now()
+	go func() {
+		for i := 0; i < 1000; i++ {
+			<- ticker.C
+			wg.Done()
+		}
+	}()
+	wg.Wait()
+	fmt.Println("done. secs = ", time.Now().Sub(lastTime).Seconds())
+}
+*/

@@ -3,29 +3,8 @@ package main
 import (
 	"fmt"
 	"net"
-	"sync"
 	"time"
 )
-
-func test1() {
-	var wg sync.WaitGroup
-	wg.Add(1000)
-	ticker := time.NewTicker(time.Microsecond * 1)
-	lastTime := time.Now()
-	go func() {
-		for i := 0; i < 1000; i++ {
-			<- ticker.C
-			wg.Done()
-		}
-	}()
-	wg.Wait()
-	fmt.Println("done. secs = ", time.Now().Sub(lastTime).Seconds())
-}
-
-type RPC struct {
-	timer time.Timer
-}
-
 
 
 var recvs = make(chan interface{}, 3)
