@@ -2,67 +2,32 @@ package main
 
 import (
 	"fmt"
-	"net"
-	"os"
+	"sync/atomic"
+	"time"
 )
 
-var input = make(chan interface{})
+// 模拟 rpc
 
-type Connection struct {
-	conn net.Conn
-	buf []byte
-}
+var rpcs = make(map[int32] chan interface{})
+var rpcInc = int32(0)
 
-func Server() {
-	listener, err := net.Listen("tcp", ":12345")
-	if err != nil {
-		fmt.Println("connect error: ", err)
-		os.Exit(-1)
+func SendXxx(pkg interface{}, timeout time.Duration) (r interface{}) {
+	serial := atomic.AddInt32(&rpcInc, int32(1))
+	c := make(chan interface{})
+	rpcs[serial] = c
+	t := time.NewTimer(timeout)
+	select {
+		case <- t.C:
+//			r = nil
+		case v := <- c:
+			r = v
 	}
-	fmt.Println("listening at 12345")
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			fmt.Println("accept error: ", err)
-			continue
-		}
-		//err = conn.SetDeadline(time.Now().Add(time.Duration(10) * time.Second))
-		//if err != nil {
-		//	fmt.Println("conn.SetDeadline error: ", err)
-		//	continue
-		//}
-		defer conn.Close()
-		fmt.Println(conn.RemoteAddr(), " accepted.")
-		n := int(0)
-		buf := make([]byte, 10)
-		for {
-			n, err = conn.Read(buf)
-			if err != nil {
-				fmt.Println("conn.Read error: ", err)
-				break
-			} else if len(buf) > 0 {
-				fmt.Println(n, buf)
-			}
-		}
-	}
+	return
 }
-
-func Client() {
-	conn, err := net.Dial("tcp", "127.0.0.1:12345")
-	if err != nil {
-		fmt.Println("accept error: ", err)
-		return
-	}
-	defer conn.Close()
-	conn.Write([]byte("asdf"))
-
-}
-
-
 
 func main() {
-	go Server()
-	Client()
+	rtv := SendXxx(nil, time.Second)
+	fmt.Println(rtv)
 }
 
 
