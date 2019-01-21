@@ -1,46 +1,92 @@
 package main
 
 import (
-	"./xx"
-	"fmt"
-	"net"
-	"sync/atomic"
-	"time"
+"./xx"
+"fmt"
+"net"
+"sync"
+"sync/atomic"
+"time"
 )
 
-// 模拟 listener 产生的 peer
-type TcpPeer struct {
-	net.Conn
-
-	OnTimeout func()
-	OnReceivePackage func(pkg xx.IObject)
-	OnReceiveRequest func(serial int32, pkg xx.IObject)
-	// todo: OnReceiveRoutingPackage
-	Disposed bool
-
-	// todo: 线程安全: lock
-	rpcSerials map[int32] chan xx.IObject
-	rpcInc int32
+type NetMessage struct {
+	TypeId int32									// 0: Disconnected    1: Package    2: Request
+	Serial int32
+	Pkg xx.IObject
 }
 
-func (zs *TcpPeer) sendBytes(bytes []uint8) {
-	if zs.Disposed {
-		panic("TcpPeer is Disposed.")
+type TcpPeer struct {
+	net.Conn
+	recvs chan *NetMessage
+	rpcMutex sync.Mutex								// for rpcSerials
+	rpcSerials map[int32] chan xx.IObject			// serial : recv chan
+	rpcInc int32									// atomic++
+	status int32									// atomic update		 	0: ok   1: closed
+}
+
+func (zs *TcpPeer) PopEvent(timeout time.Duration) (r *NetMessage) {
+	if zs.IsClosed() {
+		return
 	}
-	n, err := zs.Write(bytes)
-	if err != nil {
-		panic(err)
+	if timeout == 0 {
+		select {
+		case r = <- zs.recvs:
+		default:
+		}
+	} else if timeout < 0 {
+		select {
+		case r = <- zs.recvs:
+		}
+	} else {
+		select {
+		case r = <- zs.recvs:
+		case <- time.After(timeout):
+		}
 	}
-	if n < len(bytes) {
-		panic("TcpPeer Send is blocked")
+	return
+}
+
+func (zs *TcpPeer) Close(timeout time.Duration) {
+	if atomic.SwapInt32(&zs.status, 1) != 0 {
+		return
 	}
+	//ra := zs.Conn.RemoteAddr()
+	if timeout <= 0 {
+		zs.Conn.Close()
+	} else {
+		go func(conn net.Conn) {
+			select {
+			case <- time.After(timeout):
+				conn.Close()
+			}
+		}(zs.Conn)
+	}
+	close(zs.recvs)
+	func(){
+		zs.rpcMutex.Lock()
+		defer zs.rpcMutex.Unlock()
+		for _, v := range zs.rpcSerials {
+			close(v)
+		}
+	}()
+}
+
+func (zs *TcpPeer) IsClosed() bool {
+	return atomic.LoadInt32(&zs.status) == 1
 }
 
 // [typeId] [len] [serial?] [data]
 func (zs *TcpPeer) sendCore(typeId uint8, serial int32, pkg xx.IObject) {
+	if zs.IsClosed() {
+		return
+	}
+	defer func() {
+		recover()		// todo: handle Conn.Write error
+	}()
+
 	bbSend := xx.BBuffer{}
 	bbSend.WriteSpaces(5)
-	if serial >= 0 {
+	if serial > 0 {
 		bbSend.WriteUInt32(uint32(serial))
 	}
 	bbSend.WriteRoot(pkg)
@@ -50,34 +96,45 @@ func (zs *TcpPeer) sendCore(typeId uint8, serial int32, pkg xx.IObject) {
 		p[2] = typeId
 		p[3] = uint8(dataLen)
 		p[4] = uint8(dataLen >> 8)
-		zs.sendBytes(p[2:dataLen + 3])
+		p = p[2:dataLen + 3]
 	} else {
 		p[0] = typeId | (1 << 2)
 		p[1] = uint8(dataLen)
 		p[2] = uint8(dataLen >> 8)
 		p[3] = uint8(dataLen >> 16)
 		p[4] = uint8(dataLen >> 24)
-		zs.sendBytes(p)
 	}
+	zs.Conn.Write(p)
 }
 
 // [type 0] [len] [data]
 func (zs *TcpPeer) Send(pkg xx.IObject) {
-	zs.sendCore(0, -1, pkg)
+	zs.sendCore(0, 0, pkg)
 }
 
 // [type 1] [len] [++serial] [data]
 func (zs *TcpPeer) SendRequest(pkg xx.IObject, timeout time.Duration) (r xx.IObject) {
 	serial := atomic.AddInt32(&zs.rpcInc, 1)
 	zs.sendCore(1, serial, pkg)
-	c := make(chan xx.IObject)
-	zs.rpcSerials[serial] = c
-	t := time.NewTimer(timeout)
+	if zs.IsClosed() {
+		return
+	}
+
+	c := make(chan xx.IObject, 1)
+	func() {
+		zs.rpcMutex.Lock()
+		defer zs.rpcMutex.Unlock()
+		zs.rpcSerials[serial] = c
+	}()
 	select {
-	case <- t.C:
+	case <- time.After(timeout):
 	case r = <- c:
 	}
-	delete(zs.rpcSerials, serial)
+	func(){
+		zs.rpcMutex.Lock()
+		defer zs.rpcMutex.Unlock()
+		delete(zs.rpcSerials, serial)
+	}()
 	return
 }
 
@@ -86,104 +143,134 @@ func (zs *TcpPeer) SendResponse(serial int32, pkg xx.IObject) {
 	zs.sendCore(2, serial, pkg)
 }
 
-// block receive packages & call OnReceivePackage or OnReceiveRequest or rpcSerials[serial] <- pkg
-func (zs *TcpPeer) Receive() {
-	// todo: writing
-
+func (zs *TcpPeer) beginReceive() {
 	defer func() {
-		zs.Conn.Close()
-		zs.Disposed = true
-		fmt.Println("conn.Close.")
+		recover()																		// for ReadRoot panic
+		zs.Close(0)
 	}()
-	fmt.Println(zs.Conn.RemoteAddr(), " accepted.")
 
-
-	readBuf := make([]byte, 16384)														// 用于 Conn.Read
+	readBuf := make([]byte, 16384)														// for Conn.Read
 	bbRecv := xx.BBuffer{}
-	bbRecv.Buf = make([]byte, 16384)													// 用于累积上次剩下的数据
-	buf := bbRecv.Buf
+	buf := make([]byte, 0, 16384)														// for append left data
 	for {
 		n, err := zs.Conn.Read(readBuf)
 		if err != nil {
 			fmt.Println("conn.Read error: ", err)
 			goto AfterFor
+		} else if zs.IsClosed() {
+			return
 		} else if n > 0 {
-			buf = append(buf, readBuf[:n]...)											// 追加到累积 buf 以简化流程
-			offset := 0																	//
+			buf = append(buf, readBuf[:n]...)
+			offset := 0
 
-			for ;offset + 3 <= len(buf); {												// 确保 3 字节 包头长度
-				typeId := buf[offset]                   								// 读出头
+			for ;offset + 3 <= len(buf); {												// ensure header len: 3
+				typeId := buf[offset]
 
-				dataLen := int(buf[offset + 1] + (buf[offset + 2] << 8))				// 读出包长
+				dataLen := int(buf[offset + 1] + (buf[offset + 2] << 8))				// calc data len
 				headerLen := 3
-				if typeId & 4 > 0 {                       								// 大包确保 5 字节 包头长度
+				if typeId & 4 > 0 {                       								// ensure length 5 if big pkg
 					if offset + 5 > len(buf) {
 						break
 					}
 					headerLen = 5
-					dataLen += int((buf[offset + 3] << 16) + (buf[offset + 4] << 24))	// 修正为大包包长
+					dataLen += int((buf[offset + 3] << 16) + (buf[offset + 4] << 24))	// fix data len for big pkg
 				}
 
-				if dataLen <= 0 {                           							// 数据异常判断
+				if dataLen <= 0 {
 					goto AfterFor
 				}
-				if offset + headerLen + dataLen > len(buf) {							// 确保数据长
+				if offset + headerLen + dataLen > len(buf) {							// ensure data len
 					break
 				}
-				//pkgOffset := offset	// for router
-				offset += headerLen
+				offset += headerLen														// jump to data area
 
-				if typeId & 8 > 0 {														// 转发类数据包
-					goto AfterFor
-					// todo
-					//addrLen := typeId >> 4
-					//addrOffset := offset
-					//pkgLen := offset + dataLen - pkgOffset
-					//offset += addrLen
-					//zs.bbRecv.Offset = offset;
-					//if zs.OnReceiveRoutingPackage != nil {
-					//// todo: 解包
-					//	//OnReceiveRoutingPackage(bbRecv, pkgOffset, pkgLen, addrOffset, addrLen);
-					//}
+				bbRecv.Offset = offset													// for read root
+				bbRecv.Buf = buf
+
+				pkgType := typeId & 3
+				if pkgType == 0 {
+					select {
+						case zs.recvs <- &NetMessage{ 1, 0, bbRecv.ReadRoot() }:
+						default:
+							fmt.Println("event chan is full.")
+							goto AfterFor
+					}
 				} else {
-					bbRecv.Offset = offset												// 准备 ReadRoot
-					bbRecv.Buf = buf
-
-					pkgType := typeId & 3
-					if pkgType == 0 {
-						if zs.OnReceivePackage != nil {
-							zs.OnReceivePackage(bbRecv.ReadRoot())
+					serial := int32(bbRecv.ReadUInt32())
+					if pkgType == 1 {
+						select {
+						case zs.recvs <- &NetMessage{ 2, serial, bbRecv.ReadRoot() }:
+						default:
+							fmt.Println("event chan is full.")
+							goto AfterFor
 						}
-					} else {
-						serial := int32(bbRecv.ReadUInt32())
-						if pkgType == 1 {
-							if zs.OnReceiveRequest != nil {
-								zs.OnReceiveRequest(serial, bbRecv.ReadRoot())
-							}
-						} else if pkgType == 2 {
-							if v, found := zs.rpcSerials[serial]; found {
-								v <- bbRecv.ReadRoot()
+					} else if pkgType == 2 {
+						v := (chan xx.IObject)(nil)
+						found := false
+						func(){
+							zs.rpcMutex.Lock()
+							defer zs.rpcMutex.Unlock()
+							v, found = zs.rpcSerials[serial]
+						}()
+						if found {														// not found: ignore( timeout )
+							select {
+							case v <- bbRecv.ReadRoot():
+							default:
+								fmt.Println("rpc chan is full.")
+								goto AfterFor
 							}
 						}
 					}
 				}
-				if zs.Disposed || len(bbRecv.Buf) == 0 /* || Disconnected */ {
-					goto AfterFor
-				}
-				offset += dataLen														// 继续处理剩余数据
+				offset += dataLen														// jump to next pkg area
 			}
 
+			// move left data to top
 			leftLen := len(buf) - offset
-			if leftLen > 0 {															// 还有剩余的数据: 移到最前面
+			if leftLen > 0 {
 				copy(buf[offset:leftLen], buf[:0])
 			}
 			buf = buf[:leftLen]
 		}
 	}
 AfterFor:
+	zs.recvs <- &NetMessage{ 0, 0, nil }							// push disconnect message
 }
 
+func newTcpPeer(conn net.Conn, recvsLen int) *TcpPeer {
+	peer := &TcpPeer{}
+	peer.Conn = conn
+	peer.recvs = make(chan *NetMessage, recvsLen)
+	go peer.beginReceive()
+	return peer
+}
+
+
+func Run() {
+	listener, err := net.Listen("tcp", ":12345")
+	if err != nil {
+		panic(err)
+	}
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			fmt.Println("accept error: ", err)
+			continue
+		}
+		peer := newTcpPeer(conn, 1000)
+		go func(){
+			fmt.Println("accepted: ", peer.RemoteAddr())
+			for {
+				e := peer.PopEvent(0)
+				if e != nil {
+					fmt.Println(e)
+				}
+			}
+		}()
+	}
+}
+
+
 func main() {
-	bb := xx.BBuffer{}
-	fmt.Println(bb)
+	Run()
 }
