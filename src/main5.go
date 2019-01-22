@@ -4,27 +4,50 @@ import (
 	"./xx"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 )
+
+
+type NetMessages struct {
+	mutex sync.Mutex
+	recvs []*xx.NetMessage
+}
+func (zs *NetMessages) Push(m *xx.NetMessage) {
+	zs.mutex.Lock()
+	defer zs.mutex.Unlock()
+	zs.recvs = append(zs.recvs, m)
+}
+func (zs *NetMessages) PopAll() (r []*xx.NetMessage) {
+	zs.mutex.Lock()
+	defer zs.mutex.Unlock()
+	if len(zs.recvs) == 0 {
+		return
+	}
+	r = zs.recvs
+	zs.recvs = make([]*xx.NetMessage, 0, cap(r))
+	return
+}
+
+
 
 type MyConn struct {
 	net.Conn
 	readBuf []byte
 	recvBuf []byte
-	Recvs   []xx.NetMessage
+	Recvs   NetMessages
 	bb      xx.BBuffer
 }
 
-func NewMyConn(conn net.Conn, readBufLen int, recvBufLen int, recvsLen int) *MyConn {
+func NewMyConn(conn net.Conn, readBufLen int, recvBufLen int) *MyConn {
 	peer := &MyConn{}
 	peer.Conn = conn
 	peer.readBuf = make([]byte, readBufLen)
 	peer.recvBuf = make([]byte, 0, recvBufLen)
-	peer.Recvs = make([]xx.NetMessage, 0, recvsLen)
 	return peer
 }
 
-func (zs *MyConn) Read() bool {
+func (zs *MyConn) Read() (r int) {
 	n, err := zs.Conn.Read(zs.readBuf)
 	if err != nil {
 		fmt.Println("conn.Read error: ", err)
@@ -59,15 +82,16 @@ func (zs *MyConn) Read() bool {
 
 			pkgType := typeId & 3
 			if pkgType == 0 {
-				zs.Recvs = append(zs.Recvs, xx.NetMessage{0, zs.bb.TryReadRoot() })
+				zs.Recvs.Push(&xx.NetMessage{0, zs.bb.TryReadRoot() })
 			} else {
 				serial := int32(zs.bb.ReadUInt32())
 				if pkgType == 1 {
-					zs.Recvs = append(zs.Recvs, xx.NetMessage{serial, zs.bb.TryReadRoot() })
+					zs.Recvs.Push(&xx.NetMessage{serial, zs.bb.TryReadRoot() })
 				} else if pkgType == 2 {
 					// todo
 				}
 			}
+			r++
 			offset += dataLen																// jump to next pkg area
 		}
 
@@ -78,9 +102,10 @@ func (zs *MyConn) Read() bool {
 		}
 		zs.recvBuf = zs.recvBuf[:leftLen]
 	}
-	return false
+	return
 AfterFor:
-	return true
+	// todo; clean up
+	return -1
 }
 
 // [typeId] [len] [serial?] [data]
@@ -123,48 +148,69 @@ func (zs *MyConn) Send(pkg xx.IObject) {
 }
 
 func main() {
-	go func(){
+	xx.RegisterInternals()
+
+	go func() {
 		listener, _ := net.Listen("tcp", ":12345")
 		for {
-			conn, _ := listener.Accept()
-			myconn := NewMyConn(conn, 512, 512, 512)
-			go func(){
+			c_, _ := listener.Accept()
+			c := NewMyConn(c_, 512, 512)
+			go func() {
 				for {
-					if myconn.Read() {
+					r := c.Read()
+					if r == 0 {
+						continue
+					} else if r < 0 {
 						fmt.Println("server peer read error")
 						break
+					} else {
+						// echo
+						recvs := c.Recvs.PopAll()
+						for _, v := range recvs {
+							c.Send(v.Pkg)
+						}
 					}
-					for _, v := range myconn.Recvs {
-						myconn.Send(v.Pkg)
-					}
-					myconn.Recvs = myconn.Recvs[:0]
 				}
 			}()
 		}
 	}()
 
-	conn, _ := net.Dial("tcp", ":12345")
-	myconn := NewMyConn(conn, 512, 512, 512)
-	bb := xx.BBuffer{}
-	bb.Buf = append(bb.Buf, []byte{ 1,2,3,4,5,6 }...)
-	myconn.Send(&bb)
-	count := 0
-	t := time.Now()
-	for {
-		if myconn.Read() {
-			fmt.Println("client peer read error")
-			break
+	f := func() {
+		c_, _ := net.Dial("tcp", ":12345")
+		c := NewMyConn(c_, 512, 512)
+		bb := xx.BBuffer{}
+		bb.Buf = append(bb.Buf, []byte{1, 2, 3, 4, 5, 6}...)
+		c.Send(&bb)
+		count := 0
+		t := time.Now()
+		for {
+			r := c.Read()
+			if r == 0 {
+				continue
+			}
+			if r < 0 {
+				fmt.Println("server peer read error")
+				break
+			}
+			// echo
+			recvs := c.Recvs.PopAll()
+			for _, v := range recvs {
+				c.Send(v.Pkg)
+				count++
+				if count == 10000 {
+					goto AfterFor
+				}
+			}
 		}
-		for _, v := range myconn.Recvs {
-			myconn.Send(v.Pkg)
-		}
-		myconn.Recvs = myconn.Recvs[:0]
-		count++
-		if count == 100000 {
-			break
-		}
+	AfterFor:
+		fmt.Println(time.Now().Sub(t).Seconds())
 	}
-	fmt.Println(time.Now().Sub(t).Seconds())
+	go f()
+	go f()
+	go f()
+	go f()
+	go f()
+	time.Sleep(time.Second * 5)
 }
 
 

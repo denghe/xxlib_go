@@ -45,29 +45,40 @@ func main() {
 	go TcpListen(":12345")
 
 	// test client
-	conn, _ := net.Dial("tcp", ":12345")
-	peer := xx.NewTcpPeer(conn, 1000)
-	bb := xx.BBuffer{}
-	bb.WriteUInt8(123)
-	peer.Send(&bb)
-	n := 0
-	t := time.Now()
-	for {
-		e := peer.PopEvent()
-		if e == nil {
-			fmt.Println("client disconnected: ", peer.RemoteAddr())
-			break
+	f := func() {
+		conn, _ := net.Dial("tcp", ":12345")
+		peer := xx.NewTcpPeer(conn, 1000)
+		bb := xx.BBuffer{}
+		bb.WriteUInt8(123)
+		peer.Send(&bb)
+		n := 0
+		t := time.Now()
+		for {
+			e := peer.PopEvent()
+			if e == nil {
+				fmt.Println("client disconnected: ", peer.RemoteAddr())
+				break
+			}
+			// echo
+			if e.Serial == 0 {
+				peer.Send(e.Pkg)
+			} else {
+				peer.SendResponse(e.Serial, e.Pkg)
+			}
+			n++
+			if n == 100000 {
+				break
+			}
 		}
-		// echo
-		if e.Serial == 0 {
-			peer.Send(e.Pkg)
-		} else {
-			peer.SendResponse(e.Serial, e.Pkg)
-		}
-		n++
-		if n == 1000000 {
-			break
-		}
+		fmt.Println(time.Now().Sub(t).Seconds())
 	}
-	fmt.Println(time.Now().Sub(t).Seconds())
+	go f()
+	go f()
+	go f()
+	go f()
+	go f()
+	go f()
+	go f()
+	go f()
+	time.Sleep(time.Second * 10)
 }
