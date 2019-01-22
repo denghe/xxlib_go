@@ -9,8 +9,7 @@ import (
 )
 
 type NetMessage struct {
-	TypeId int32									// 0: Disconnected    1: Package    2: Request
-	Serial int32
+	Serial int32									// 0: package     >0: request
 	Pkg IObject
 }
 
@@ -177,7 +176,7 @@ func (zs *TcpPeer) beginReceive() {
 				pkgType := typeId & 3
 				if pkgType == 0 {
 					select {
-					case zs.recvs <- &NetMessage{ 1, 0, bbRecv.ReadRoot() }:
+					case zs.recvs <- &NetMessage{0, bbRecv.ReadRoot() }:
 					default:
 						fmt.Println("event chan is full.")
 						goto AfterFor
@@ -186,7 +185,7 @@ func (zs *TcpPeer) beginReceive() {
 					serial := int32(bbRecv.ReadUInt32())
 					if pkgType == 1 {
 						select {
-						case zs.recvs <- &NetMessage{ 2, serial, bbRecv.ReadRoot() }:
+						case zs.recvs <- &NetMessage{serial, bbRecv.ReadRoot() }:
 						default:
 							fmt.Println("event chan is full.")
 							goto AfterFor
