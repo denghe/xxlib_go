@@ -72,7 +72,19 @@ type IObject interface {
 	FromBBuffer(bb *BBuffer)
 }
 
-
+type String string
+func (zs *String) GetPackageId() uint16 {
+	return 1
+}
+func (zs *String) ToBBuffer(bb *BBuffer) {
+	bb.WriteLength(len(*zs))
+	bb.Buf = append(bb.Buf, *zs...)
+}
+func (zs *String) FromBBuffer(bb *BBuffer) {
+	bufLen := bb.ReadLength()
+	*zs = String(bb.Buf[bb.Offset:bb.Offset + bufLen])
+	bb.Offset += bufLen
+}
 
 /**********************************************************************************************************************/
 // typeIdCreatorMappings
@@ -83,6 +95,10 @@ type IObject interface {
 var typeIdCreatorMappings = map[uint16] func() IObject {}
 
 func RegisterInternals() {
+	typeIdCreatorMappings[1] = func() IObject {
+		s := String("")
+		return &s
+	}
 	typeIdCreatorMappings[2] = func() IObject {
 		return &BBuffer{}
 	}
@@ -115,6 +131,7 @@ type BBuffer struct {
 	ReadLengthLimit,
 	DataLenBak,
 	OffsetRoot int
+	strStore map[string] *String
 	ptrStore map[IObject] int
 	idxStore map[int] IObject
 }
@@ -127,25 +144,16 @@ func (zs *BBuffer) Clear() {
 	zs.Buf = zs.Buf[:0]
 	zs.Offset = 0
 	zs.ReadLengthLimit = 0
-	// todo
 }
 
 func (zs *BBuffer) GetPackageId() uint16 {
 	return 2
 }
 func (zs *BBuffer) ToBBuffer(bb *BBuffer) {
-	if zs == nil {
-		bb.Buf = append(bb.Buf, uint8(0))
-		return
-	}
-	bb.Buf = append(bb.Buf, uint8(2))		// typeId
 	bb.WriteLength(len(zs.Buf))
 	bb.Buf = append(bb.Buf, zs.Buf...)
 }
 func (zs *BBuffer) FromBBuffer(bb *BBuffer) {
-	if bb.ReadUInt8() != 2 {				// auth typeId
-		panic(-1)
-	}
 	bufLen := bb.ReadLength()
 	if bb.ReadLengthLimit != 0 && bufLen > bb.ReadLengthLimit {
 		panic(-1)
@@ -363,22 +371,27 @@ func (zs *BBuffer) ReadNullableFloat64() (r NullableFloat64) {
 
 func (zs *BBuffer) WriteNullableString(v NullableString) {
 	if v.HasValue {
-		zs.WriteUInt16(1)	// typeId
-		zs.WriteLength(len(v.Value))
-		zs.Buf = append(zs.Buf, v.Value...)
+		s, found := zs.strStore[v.Value]
+		if !found {
+			str := String(v.Value)
+			s = &str
+			zs.strStore[v.Value] = s
+		}
+		zs.WriteIObject(s)
 	} else {
 		zs.Buf = append(zs.Buf, uint8(0))
 	}
 }
 func (zs *BBuffer) ReadNullableString() (r NullableString) {
-	typeId := zs.ReadUInt16()
-	if typeId == 0 {
-		return NullableString{}
+	o := zs.ReadIObject()
+	switch o.(type) {
+	case nil:
+	case *String:
+		r.Value = *(*string)(o.(*String))
+		r.HasValue = true
+	default:
+		panic(-1)
 	}
-	bufLen := zs.ReadLength()
-	r.Value = string(zs.Buf[zs.Offset:zs.Offset + bufLen])
-	zs.Offset += bufLen
-	r.HasValue = true
 	return
 }
 
@@ -520,6 +533,7 @@ func (zs *BBuffer) WriteSpaces(count int) {
 
 
 func (zs *BBuffer) BeginWrite() {
+	zs.strStore = make(map[string] *String)
 	zs.ptrStore = make(map[IObject] int)
 	zs.OffsetRoot = len(zs.Buf)
 }
@@ -558,9 +572,6 @@ func (zs *BBuffer) ReadIObject() (r IObject) {
 	if typeId == 0 {
 		return nil
 	}
-	if typeId == 1 {
-		panic(-4)	// need ReadNullableString
-	}
 	offset := zs.Offset - zs.OffsetRoot
 	ptrOffset := zs.ReadLength()
 	if ptrOffset == offset {
@@ -580,3 +591,10 @@ func (zs *BBuffer) ReadIObject() (r IObject) {
 	return
 }
 
+func (zs *BBuffer) TryReadRoot() IObject {
+	defer func() {
+		recover()
+	}()
+	zs.BeginRead()
+	return zs.ReadIObject()
+}

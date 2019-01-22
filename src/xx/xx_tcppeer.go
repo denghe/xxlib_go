@@ -35,11 +35,11 @@ func (zs *TcpPeer) Close(timeout time.Duration) {
 	}
 	//ra := zs.Conn.RemoteAddr()
 	if timeout <= 0 {
-		zs.Conn.Close()
+		_ = zs.Conn.Close()
 	} else {
 		go func(conn net.Conn) {
 			<- time.After(timeout)
-			conn.Close()
+			_ = conn.Close()
 		}(zs.Conn)
 	}
 	close(zs.recvs)

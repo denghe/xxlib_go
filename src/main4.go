@@ -28,7 +28,6 @@ func TcpListen(addr string) {
 					break
 				}
 				//fmt.Println("peer pop event: ", e)
-				// todo: logic here
 				// echo
 				if e.Serial == 0 {
 					peer.Send(e.Pkg)
@@ -42,15 +41,15 @@ func TcpListen(addr string) {
 
 func main() {
 	xx.RegisterInternals()
-	bb := &xx.BBuffer{}
-	bb.WriteNullableString(xx.NullableString{"asdf",true})
 
 	go TcpListen(":12345")
 
 	// test client
 	conn, _ := net.Dial("tcp", ":12345")
 	peer := xx.NewTcpPeer(conn, 1000)
-	peer.Send(bb)
+	bb := xx.BBuffer{}
+	bb.WriteUInt8(123)
+	peer.Send(&bb)
 	n := 0
 	t := time.Now()
 	for {
@@ -59,18 +58,16 @@ func main() {
 			fmt.Println("client disconnected: ", peer.RemoteAddr())
 			break
 		}
-		//fmt.Println("client pop event: ", e)
-		// todo: logic here
+		// echo
 		if e.Serial == 0 {
 			peer.Send(e.Pkg)
 		} else {
 			peer.SendResponse(e.Serial, e.Pkg)
 		}
-
 		n++
-		if n == 100000 {
-			fmt.Println(time.Now().Sub(t).Seconds())
+		if n == 1000000 {
 			break
 		}
 	}
+	fmt.Println(time.Now().Sub(t).Seconds())
 }
