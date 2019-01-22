@@ -43,7 +43,7 @@ func TcpListen(addr string) {
 func main() {
 	xx.RegisterInternals()
 	bb := &xx.BBuffer{}
-	bb.WriteUInt32(1)
+	bb.WriteNullableString(xx.NullableString{"asdf",true})
 
 	go TcpListen(":12345")
 

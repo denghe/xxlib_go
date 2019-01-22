@@ -143,6 +143,9 @@ func (zs *BBuffer) ToBBuffer(bb *BBuffer) {
 	bb.Buf = append(bb.Buf, zs.Buf...)
 }
 func (zs *BBuffer) FromBBuffer(bb *BBuffer) {
+	if bb.ReadUInt8() != 2 {				// auth typeId
+		panic(-1)
+	}
 	bufLen := bb.ReadLength()
 	if bb.ReadLengthLimit != 0 && bufLen > bb.ReadLengthLimit {
 		panic(-1)
