@@ -42,5 +42,8 @@ func EchoClient() {
 }
 
 func main() {
-	EchoClient()
+	go EchoClient()
+	go EchoClient()
+	go EchoClient()
+	time.Sleep(time.Second * 10)
 }
