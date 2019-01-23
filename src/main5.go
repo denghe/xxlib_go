@@ -75,7 +75,7 @@ func main() {
 		fmt.Println(time.Now().Sub(t).Seconds(), " count == ", count)
 	}
 	go f()
-	go f()
-	go f()
+	//go f()
+	//go f()
 	time.Sleep(time.Second * 10)
 }
