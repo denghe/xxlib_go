@@ -8,36 +8,7 @@ import (
 
 // 最直接的 ping pong 测试
 
-func Server() {
-	listener, _ := net.Listen("tcp", ":12345")
-	for {
-		c, _ := listener.Accept()
-		go func() {
-			defer func() {
-				_ = c.Close()
-			}()
-			buf := make([]byte, 10)
-			for {
-				n, err := c.Read(buf)
-				if err != nil {
-					e, ok := err.(net.Error)
-					if !ok || !e.Temporary() {
-						return
-					}
-				}
-				if n > 0 {
-					count := n
-					n, err = c.Write(buf[:n])
-					if err != nil || n != count {
-						return
-					}
-				}
-			}
-		}()
-	}
-}
-
-func Client() {
+func EchoClient() {
 	count := 0
 	t := time.Now()
 
@@ -71,6 +42,5 @@ func Client() {
 }
 
 func main() {
-	go Server()
-	Client()
+	EchoClient()
 }
