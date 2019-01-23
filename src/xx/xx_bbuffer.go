@@ -5,126 +5,6 @@ import (
 	"unsafe"
 )
 
-/**********************************************************************************************************************/
-// Nullables
-/**********************************************************************************************************************/
-
-
-type NullableUInt8 struct {
-	Value uint8
-	HasValue bool
-}
-type NullableUInt16 struct {
-	Value uint16
-	HasValue bool
-}
-type NullableUInt32 struct {
-	Value uint32
-	HasValue bool
-}
-type NullableUInt64 struct {
-	Value uint64
-	HasValue bool
-}
-type NullableInt8 struct {
-	Value int8
-	HasValue bool
-}
-type NullableInt16 struct {
-	Value int16
-	HasValue bool
-}
-type NullableInt32 struct {
-	Value int32
-	HasValue bool
-}
-type NullableInt64 struct {
-	Value int64
-	HasValue bool
-}
-type NullableBool struct {
-	Value bool
-	HasValue bool
-}
-type NullableFloat32 struct {
-	Value float32
-	HasValue bool
-}
-type NullableFloat64 struct {
-	Value float64
-	HasValue bool
-}
-type NullableString struct {
-	Value string
-	HasValue bool
-}
-
-
-
-/**********************************************************************************************************************/
-// IObject
-/**********************************************************************************************************************/
-
-
-type IObject interface {
-	GetPackageId() uint16
-	ToBBuffer(bb *BBuffer)
-	FromBBuffer(bb *BBuffer)
-}
-
-type String string
-func (zs *String) GetPackageId() uint16 {
-	return 1
-}
-func (zs *String) ToBBuffer(bb *BBuffer) {
-	bb.WriteLength(len(*zs))
-	bb.Buf = append(bb.Buf, *zs...)
-}
-func (zs *String) FromBBuffer(bb *BBuffer) {
-	bufLen := bb.ReadLength()
-	*zs = String(bb.Buf[bb.Offset:bb.Offset + bufLen])
-	bb.Offset += bufLen
-}
-
-/**********************************************************************************************************************/
-// typeIdCreatorMappings
-/**********************************************************************************************************************/
-
-
-
-var typeIdCreatorMappings = map[uint16] func() IObject {}
-
-func RegisterInternals() {
-	typeIdCreatorMappings[1] = func() IObject {
-		s := String("")
-		return &s
-	}
-	typeIdCreatorMappings[2] = func() IObject {
-		return &BBuffer{}
-	}
-}
-
-func Register(typeId uint16, maker func() IObject) {
-	typeIdCreatorMappings[typeId] = maker
-}
-
-func CreateByTypeId(typeId uint16) IObject {
-	maker, found := typeIdCreatorMappings[typeId]
-	if found {
-		return maker()
-	}
-	panic(-3)
-}
-
-
-
-
-/**********************************************************************************************************************/
-// BBuffer
-/**********************************************************************************************************************/
-
-
-
 type BBuffer struct {
 	Buf []uint8
 	Offset,
@@ -136,6 +16,9 @@ type BBuffer struct {
 	idxStore map[int] IObject
 }
 
+func NewBBuffer() *BBuffer {
+	return &BBuffer{}
+}
 
 func (zs *BBuffer) DataLen() int {
 	return len(zs.Buf)
