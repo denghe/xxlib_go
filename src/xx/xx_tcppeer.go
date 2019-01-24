@@ -250,6 +250,14 @@ func (zs *TcpPeer) Alive() bool {
 	return atomic.LoadInt32(&zs.status) == 0
 }
 
+func (zs *TcpPeer) SetTimeout(duration time.Duration) bool {
+	if err := zs.SetReadDeadline(time.Now().Add(duration)); err != nil {
+		fmt.Println("SetTimeout / SetReadDeadline error: ", err)
+		return true
+	}
+	return false
+}
+
 func NewTcpPeer(conn net.Conn) *TcpPeer {
 	peer := &TcpPeer{}
 	peer.Conn = conn
