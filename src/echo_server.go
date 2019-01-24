@@ -24,10 +24,17 @@ func EchoServer() {
 					}
 				}
 				if n > 0 {
-					count := n
-					n, err = c.Write(buf[:n])
-					if err != nil || n != count {
-						return
+					p := buf[:n]
+				WriteAgain:
+					n, err = c.Write(p)
+					if err != nil {
+						if e, ok := err.(net.Error); !ok || !e.Temporary() {
+							return
+						}
+					}
+					if n < len(p) {
+						p = p[n:]
+						goto WriteAgain
 					}
 				}
 			}

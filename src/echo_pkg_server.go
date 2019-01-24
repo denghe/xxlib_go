@@ -11,7 +11,8 @@ func main() {
 	listener, _ := net.Listen("tcp", ":12345")
 	for {
 		c_, _ := listener.Accept()
-		c := xx.NewTcpPeer(c_, "server")
+		c := xx.NewTcpPeer(c_)
+		c.Tag = "server"
 		go func() {
 			defer c.Close(0)
 			for {
@@ -21,9 +22,7 @@ func main() {
 				for _, m := range c.Recvs {
 					switch m.TypeId {
 					case 0:								// push
-						if c.Send(m.Pkg) {				// echo test
-							return
-						}
+						c.Send(m.Pkg)					// echo test
 					case 1:								// request
 						// todo
 					case 2:								// response

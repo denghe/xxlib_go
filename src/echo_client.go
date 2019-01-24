@@ -28,9 +28,17 @@ func EchoClient() {
 			}
 		}
 		if n > 0 {
-			n_ := n
-			if n, err = c.Write(buf[:n]); err != nil || n != n_ {
-				return
+			p := buf[:n]
+		WriteAgain:
+			n, err = c.Write(p)
+			if err != nil {
+				if e, ok := err.(net.Error); !ok || !e.Temporary() {
+					return
+				}
+			}
+			if n < len(p) {
+				p = p[n:]
+				goto WriteAgain
 			}
 
 			if count++; count == 100000 {

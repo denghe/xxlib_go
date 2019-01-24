@@ -1,6 +1,7 @@
 package xx
 
 import (
+	"fmt"
 	"reflect"
 	"unsafe"
 )
@@ -476,7 +477,9 @@ func (zs *BBuffer) ReadIObject() (r IObject) {
 
 func (zs *BBuffer) TryReadRoot() IObject {
 	defer func() {
-		recover()
+		if err := recover(); err != nil {
+			fmt.Println("TryReadRoot error:", err)
+		}
 	}()
 	zs.BeginRead()
 	return zs.ReadIObject()

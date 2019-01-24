@@ -12,7 +12,8 @@ func main() {
 
 	f := func() {
 		c_, _ := net.Dial("tcp", ":12345")
-		c := xx.NewTcpPeer(c_, "client")
+		c := xx.NewTcpPeer(c_)
+		c.Tag = "client"
 		bb := xx.BBuffer{}
 		bb.Buf = append(bb.Buf, []byte{1, 2, 3, 4, 5, 6}...)
 		c.Send(&bb)
@@ -31,9 +32,7 @@ func main() {
 						if count == 100000 {
 							return
 						}
-						if c.Send(m.Pkg) {				// echo test
-							return
-						}
+						c.Send(m.Pkg)					// echo test
 					case 1:								// request
 						// todo
 					case 2:								// response
@@ -46,7 +45,7 @@ func main() {
 		fmt.Println(time.Now().Sub(t).Seconds(), " count == ", count)
 	}
 	go f()
-	go f()
-	go f()
+	//go f()
+	//go f()
 	time.Sleep(time.Second * 10)
 }

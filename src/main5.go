@@ -7,33 +7,32 @@ import (
 	"time"
 )
 
+// 异步狂发狂收
+
 func main() {
 	xx.RegisterInternals()
 
 	go func() {
 		listener, _ := net.Listen("tcp", ":12345")
 		for {
+			count := 0
 			c_, _ := listener.Accept()
-			c := xx.NewTcpPeer(c_, "server")
+			c := xx.NewTcpPeer(c_)
+			c.Tag = "server"
+			t := time.Now()
 			go func() {
 				defer c.Close(0)
 				for {
 					if c.Read() {
 						return
 					}
-					for _, m := range c.Recvs {
-						switch m.TypeId {
-						case 0:								// push
-							if c.Send(m.Pkg) {				// echo test
-								return
-							}
-						case 1:								// request
-							// todo
-						case 2:								// response
-							c.HandleResponse(m)
-						}
-					}
+					count += len(c.Recvs)
 					c.Recvs = c.Recvs[:0]
+
+					if count >= 1000000 {
+						fmt.Println(time.Now().Sub(t).Seconds(), " count == ", count)
+						return
+					}
 				}
 			}()
 		}
@@ -41,41 +40,27 @@ func main() {
 
 	f := func() {
 		c_, _ := net.Dial("tcp", ":12345")
-		c := xx.NewTcpPeer(c_, "client")
+		c := xx.NewTcpPeer(c_)
+		c.Tag = "client"
 		bb := xx.BBuffer{}
-		bb.Buf = append(bb.Buf, []byte{1, 2, 3, 4, 5, 6}...)
+		for i := 0; i < 50; i++ {
+			bb.Buf = append(bb.Buf, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 0}...)
+		}
 		c.Send(&bb)
-		count := 0
-		t := time.Now()
 		func() {
 			defer c.Close(0)
 			for {
-				if c.Read() {
+				if c.IsClosed() {
 					return
 				}
-				for _, m := range c.Recvs {
-					switch m.TypeId {
-					case 0:								// push
-						count++
-						if count == 100000 {
-							return
-						}
-						if c.Send(m.Pkg) {				// echo test
-							return
-						}
-					case 1:								// request
-						// todo
-					case 2:								// response
-						c.HandleResponse(m)
-					}
+				if c.Send(&bb) {
+					continue
 				}
-				c.Recvs = c.Recvs[:0]
 			}
 		}()
-		fmt.Println(time.Now().Sub(t).Seconds(), " count == ", count)
 	}
 	go f()
-	//go f()
-	//go f()
+	go f()
+	go f()
 	time.Sleep(time.Second * 10)
 }
