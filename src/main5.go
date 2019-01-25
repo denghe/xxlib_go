@@ -216,9 +216,11 @@ func (zs *PKG_Server_Login_EnterSuccess) FromBBuffer(bb *xx.BBuffer) {
 
 
 // todo
+type LoginServer struct {
+	// todo
+}
 
-
-func RunLogin() {
+func (zs *LoginServer) RunXxxxListener() {
 	listener, _ := net.Listen("tcp", ":10001")
 	// todo: user map
 	for {
