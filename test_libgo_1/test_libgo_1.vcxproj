@@ -12,9 +12,9 @@
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>
-    <ProjectGuid>{DA9371FC-DF5B-4A85-A56E-415CD9FD6CFA}</ProjectGuid>
+    <ProjectGuid>{F50E0A6C-AC6B-4393-B10C-912021F6376C}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>test_coroutine_1</RootNamespace>
+    <RootNamespace>test_libgo_1</RootNamespace>
     <WindowsTargetPlatformVersion>8.1</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -22,14 +22,14 @@
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v141</PlatformToolset>
-    <CharacterSet>Unicode</CharacterSet>
+    <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v141</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
-    <CharacterSet>Unicode</CharacterSet>
+    <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -44,10 +44,12 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>$(SolutionDir)../boost_1_69_0;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)..\..\libgo;$(ProjectDir)..\..\libgo\libgo;$(ProjectDir)..\..\libgo\libgo\netio\windows;$(ProjectDir)..\..\libgo\tutorial;$(ProjectDir)..\..\boost_1_69_0;$(IncludePath)</IncludePath>
+    <LibraryPath>$(ProjectDir)..\..\libgo\vs_proj\vs2017\x64\Debug;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>$(SolutionDir)../boost_1_69_0;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)..\..\libgo;$(ProjectDir)..\..\libgo\libgo\netio\windows;$(ProjectDir)..\..\libgo\tutorial;$(ProjectDir)..\..\boost_1_69_0;$(ProjectDir)..\..\libgo\libgo;$(IncludePath)</IncludePath>
+    <LibraryPath>$(ProjectDir)..\..\libgo\vs_proj\vs2017\x64\Release;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -60,7 +62,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <AdditionalLibraryDirectories>$(SolutionDir)../boost_1_69_0/lib64-msvc-14.1</AdditionalLibraryDirectories>
+      <AdditionalDependencies>libgo.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -78,7 +80,7 @@
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalLibraryDirectories>$(SolutionDir)../boost_1_69_0/lib64-msvc-14.1</AdditionalLibraryDirectories>
+      <AdditionalDependencies>libgo.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
