@@ -1,0 +1,78 @@
+// https://www.gamedev.net/blogs/entry/2249317-a-guide-to-getting-started-with-boostasio/
+// 3a
+
+#define var decltype(auto)
+
+#include "asio/io_service.hpp"
+#include <iostream>
+#include <memory>
+#include <thread>
+#include <mutex>
+#include <chrono>
+
+std::mutex coutMutex;
+template<typename ...Args>
+void Cout(Args const& ... args) {
+	std::lock_guard<std::mutex> lg_mutex(coutMutex);
+	std::initializer_list<int> n{ ((std::cout << args), 0)... };
+	(void)(n);
+}
+
+template<typename ...Args>
+void CoutT(Args const& ... args) {
+	Cout("[", std::this_thread::get_id(), "] ", args...);
+}
+
+
+void WorkerThread(asio::io_service& io_service) {
+	try {
+		CoutT("thread start\n");
+		io_service.run();
+		CoutT("thread finish\n");
+	}
+	catch (std::exception& e) {
+		CoutT(e.what(), "\n");
+	}
+}
+
+size_t fib(size_t n) {
+	if (n <= 1) {
+		return n;
+	}
+	std::this_thread::sleep_for(std::chrono::seconds(1));
+	return fib(n - 1) + fib(n - 2);
+}
+
+void CalcFib(size_t n) {
+	CoutT("Now calc fib(", n, ")\n");
+	var f = fib(n);
+	CoutT("fib(", n, ") = ", f, "\n");
+}
+
+int main(int argc, char* argv[])
+{
+	asio::io_service io_service;
+	try {
+		var work = std::make_shared<asio::io_service::work>(io_service);
+		Cout("The program will exit when all work has finished.\n");
+
+		std::vector<std::thread> worker_threads;
+		for (size_t i = 0; i < 2; i++)
+		{
+			worker_threads.emplace_back(std::bind(&::WorkerThread, std::ref(io_service)));
+		}
+
+		io_service.post(std::bind(CalcFib, 3));
+		io_service.post(std::bind(CalcFib, 4));
+		io_service.post([] { CalcFib(5); });
+
+		work.reset();
+		for (var t : worker_threads) {
+			t.join();
+		}
+	}
+	catch (std::exception& e) {
+		Cout(e.what(), "\n");
+	}
+	return 0;
+}

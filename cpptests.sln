@@ -11,6 +11,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "test_coroutine_1", "test_co
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "test_libgo_1", "test_libgo_1\test_libgo_1.vcxproj", "{F50E0A6C-AC6B-4393-B10C-912021F6376C}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "test_asio_3", "test_asio_3\test_asio_3.vcxproj", "{5D958020-9B26-436F-9362-34937142ABDC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -33,6 +35,10 @@ Global
 		{F50E0A6C-AC6B-4393-B10C-912021F6376C}.Debug|x64.Build.0 = Debug|x64
 		{F50E0A6C-AC6B-4393-B10C-912021F6376C}.Release|x64.ActiveCfg = Release|x64
 		{F50E0A6C-AC6B-4393-B10C-912021F6376C}.Release|x64.Build.0 = Release|x64
+		{5D958020-9B26-436F-9362-34937142ABDC}.Debug|x64.ActiveCfg = Debug|x64
+		{5D958020-9B26-436F-9362-34937142ABDC}.Debug|x64.Build.0 = Debug|x64
+		{5D958020-9B26-436F-9362-34937142ABDC}.Release|x64.ActiveCfg = Release|x64
+		{5D958020-9B26-436F-9362-34937142ABDC}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
