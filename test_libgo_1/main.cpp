@@ -1,26 +1,27 @@
 ﻿#include <libgo/libgo.h>
 #include <chrono>
 #include <iostream>
+#include <thread>
 
-co_timer timer(std::chrono::milliseconds(1), &co_sched);
-size_t n = 0;
-void timerCB() {
-	++n;
-	timer.ExpireAt(std::chrono::milliseconds(1), timerCB);
-}
 int main()
 {
-	timerCB();
-
-	co_timer timer2(std::chrono::nanoseconds(1), &co_sched);
-	//co_timer timer2(std::chrono::milliseconds(1), &co_sched);
-	timer2.ExpireAt(std::chrono::seconds(1), [] 
+	go[]
 	{
-		std::cout << n << std::endl;
-	});
-
-	go[]{
-		std::cout << "xx\n";
+		std::cout << "go1\n";
+		auto t = std::chrono::system_clock::now();
+		for (int i = 0; i < 10000; ++i) {
+			std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+		}
+		
+		std::cout << (double(std::chrono::nanoseconds(std::chrono::system_clock::now() - t).count()) / 1000000000) << std::endl;
+	};
+	go[]
+	{
+		std::cout << "go2\n";
+		for (int i = 0; i < 10000; ++i) {
+			std::this_thread::sleep_for(std::chrono::seconds(1));
+			std::cout << ".";
+		}
 	};
 	co_sched.Start();
 	return 0;
