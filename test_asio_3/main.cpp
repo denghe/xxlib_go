@@ -1,10 +1,10 @@
 ﻿// https://www.gamedev.net/blogs/entry/2249317-a-guide-to-getting-started-with-boostasio/
-// 4a
+// 5a
 
 #define var decltype(auto)
 
 #include "asio/io_service.hpp"
-#include "asio/io_context_strand.hpp"
+#include "asio/basic_waitable_timer.hpp"
 #include <iostream>
 #include <memory>
 #include <thread>
@@ -25,18 +25,32 @@ void CoutT(Args const& ... args) {
 }
 
 void WorkerThread(asio::io_service& io_service) {
-	try {
-		CoutT("thread start\n");
-		io_service.run();
-		CoutT("thread finish\n");
+	CoutT("thread start\n");
+
+	while (true) {
+		try {
+			asio::error_code ec;
+			io_service.run(ec);
+			if (ec) {
+				CoutT("asio error: ", ec, "\n");
+			}
+			break;
+		}
+		catch (std::exception& ex) {
+			CoutT("exception: ", ex.what(), "\n");
+		}
 	}
-	catch (std::exception& e) {
-		CoutT(e.what(), "\n");
-	}
+
+	CoutT("thread finish\n");
 }
 
-void PrintNum(int x) {
-	std::cout << "[" << std::this_thread::get_id() << "] x: " << x << std::endl;
+void TimerHandler(asio::error_code const& err) {
+	if (err) {
+		CoutT("error: ", err);
+	}
+	else {
+		CoutT("timerHandler.\n");
+	}
 }
 
 int main(int argc, char* argv[])
@@ -45,9 +59,7 @@ int main(int argc, char* argv[])
 	try {
 		var work = std::make_shared<asio::io_service::work>(ios);
 
-		asio::io_service::strand strand(ios);
-
-		Cout("The program will exit when all work has finished.\n");
+		Cout("Press [return] to exit.\n");
 
 		std::vector<std::thread> worker_threads;
 		for (size_t i = 0; i < 2; i++)
@@ -55,21 +67,13 @@ int main(int argc, char* argv[])
 			worker_threads.emplace_back(std::bind(&::WorkerThread, std::ref(ios)));
 		}
 
-		std::this_thread::sleep_for(std::chrono::seconds(1));
+		asio::basic_waitable_timer<std::chrono::system_clock> timer(ios);
+		timer.expires_from_now(std::chrono::seconds(1));
+		timer.async_wait(TimerHandler);
 
-		//strand.post(std::bind(&PrintNum, 1));
-		//strand.post(std::bind(&PrintNum, 2));
-		//strand.post(std::bind(&PrintNum, 3));
-		//strand.post(std::bind(&PrintNum, 4));
-		//strand.post(std::bind(&PrintNum, 5));
+		std::cin.get();
+		ios.stop();
 
-		ios.post(std::bind(&PrintNum, 1));
-		ios.post(std::bind(&PrintNum, 2));
-		ios.post(std::bind(&PrintNum, 3));
-		ios.post(std::bind(&PrintNum, 4));
-		ios.post(std::bind(&PrintNum, 5));
-
-		work.reset();
 		for (var t : worker_threads) {
 			t.join();
 		}
