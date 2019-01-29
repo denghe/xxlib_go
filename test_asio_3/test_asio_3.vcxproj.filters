@@ -8,5 +8,6 @@
     <Text Include="bak_3b.txt" />
     <Text Include="bak_4a.txt" />
     <Text Include="bak_6c.txt" />
+    <Text Include="bak_7b.txt" />
   </ItemGroup>
 </Project>

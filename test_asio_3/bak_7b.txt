@@ -1,5 +1,5 @@
-﻿// https://www.gamedev.net/blogs/entry/2249317-a-guide-to-getting-started-with-boostasio/
-// 7c
+// https://www.gamedev.net/blogs/entry/2249317-a-guide-to-getting-started-with-boostasio/
+// 7b
 
 #define var decltype(auto)
 
@@ -47,12 +47,12 @@ void WorkerThread(asio::io_service& io_service) {
 	CoutT("thread finish\n");
 }
 
-void OnAccept(asio::error_code const& ec, asio::ip::tcp::socket& sock) {
+void OnConnect(asio::error_code const& ec, asio::ip::tcp::socket& sock) {
 	if (ec) {
 		CoutT("error: ", ec, "\n");
 	}
 	else {
-		CoutT("accepted!\n");
+		CoutT("connected!\n");
 	}
 }
 
@@ -69,26 +69,14 @@ int main(int argc, char* argv[])
 		worker_threads.emplace_back(std::bind(&::WorkerThread, std::ref(ios)));
 	}
 
-	asio::ip::tcp::acceptor acceptor(ios);
 	asio::ip::tcp::socket sock(ios);
 	try {
 		asio::ip::tcp::resolver resolver(ios);
-
-		//asio::ip::tcp::acceptor acceptor(io_context);
-		//asio::ip::tcp::endpoint endpoint(asio::ip::tcp::v4(), port);
-		//acceptor.open(endpoint.protocol());
-		//acceptor.set_option(asio::ip::tcp::acceptor::reuse_address(true));
-		//acceptor.bind(endpoint);
-		//acceptor.listen();
-
-		asio::ip::tcp::resolver::query query("127.0.0.1", "12345");
-		asio::ip::tcp::endpoint endpoint = *resolver.resolve(query);
-		acceptor.open(endpoint.protocol());
-		acceptor.set_option(asio::ip::tcp::acceptor::reuse_address(false));
-		acceptor.bind(endpoint);
-		acceptor.listen(asio::socket_base::max_connections);
-		acceptor.async_accept(sock, [&](auto const&ec) { OnAccept(ec, sock); });
-		Cout("listening to ", endpoint.address(), ":", endpoint.port(), "\n");
+		asio::ip::tcp::resolver::query query("www.baidu.com", "80");
+		var iter = resolver.resolve(query);
+		var endpoint = *iter;
+		Cout("connect to ", endpoint.host_name(), ":", endpoint.service_name(), "\n");
+		sock.async_connect(endpoint, [&](auto const&ec) { OnConnect(ec, sock); });
 	}
 	catch (std::exception& ex) {
 		CoutT("exception: ", ex.what(), "\n");
