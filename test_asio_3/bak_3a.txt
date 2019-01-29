@@ -52,27 +52,22 @@ void CalcFib(size_t n) {
 int main(int argc, char* argv[])
 {
 	asio::io_service io_service;
-	try {
-		var work = std::make_shared<asio::io_service::work>(io_service);
-		Cout("The program will exit when all work has finished.\n");
+	var work = std::make_shared<asio::io_service::work>(io_service);
+	Cout("The program will exit when all work has finished.\n");
 
-		std::vector<std::thread> worker_threads;
-		for (size_t i = 0; i < 2; i++)
-		{
-			worker_threads.emplace_back(std::bind(&::WorkerThread, std::ref(io_service)));
-		}
-
-		io_service.post(std::bind(CalcFib, 3));
-		io_service.post(std::bind(CalcFib, 4));
-		io_service.post([] { CalcFib(5); });
-
-		work.reset();
-		for (var t : worker_threads) {
-			t.join();
-		}
+	std::vector<std::thread> worker_threads;
+	for (size_t i = 0; i < 2; i++)
+	{
+		worker_threads.emplace_back(std::bind(&::WorkerThread, std::ref(io_service)));
 	}
-	catch (std::exception& e) {
-		Cout(e.what(), "\n");
+
+	io_service.post(std::bind(CalcFib, 3));
+	io_service.post(std::bind(CalcFib, 4));
+	io_service.post([] { CalcFib(5); });
+
+	work.reset();
+	for (var t : worker_threads) {
+		t.join();
 	}
 	return 0;
 }

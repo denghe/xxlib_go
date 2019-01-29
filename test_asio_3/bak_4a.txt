@@ -42,40 +42,35 @@ void PrintNum(int x) {
 int main(int argc, char* argv[])
 {
 	asio::io_service ios;
-	try {
-		var work = std::make_shared<asio::io_service::work>(ios);
+	var work = std::make_shared<asio::io_service::work>(ios);
 
-		asio::io_service::strand strand(ios);
+	asio::io_service::strand strand(ios);
 
-		Cout("The program will exit when all work has finished.\n");
+	Cout("The program will exit when all work has finished.\n");
 
-		std::vector<std::thread> worker_threads;
-		for (size_t i = 0; i < 2; i++)
-		{
-			worker_threads.emplace_back(std::bind(&::WorkerThread, std::ref(ios)));
-		}
-
-		std::this_thread::sleep_for(std::chrono::seconds(1));
-
-		//strand.post(std::bind(&PrintNum, 1));
-		//strand.post(std::bind(&PrintNum, 2));
-		//strand.post(std::bind(&PrintNum, 3));
-		//strand.post(std::bind(&PrintNum, 4));		// post: 顺序不重叠执行
-		//strand.post(std::bind(&PrintNum, 5));		// wrap: 乱序不重叠执行
-
-		ios.post(std::bind(&PrintNum, 1));	// 重叠执行
-		ios.post(std::bind(&PrintNum, 2));
-		ios.post(std::bind(&PrintNum, 3));
-		ios.post(std::bind(&PrintNum, 4));
-		ios.post(std::bind(&PrintNum, 5));
-
-		work.reset();
-		for (var t : worker_threads) {
-			t.join();
-		}
+	std::vector<std::thread> worker_threads;
+	for (size_t i = 0; i < 2; i++)
+	{
+		worker_threads.emplace_back(std::bind(&::WorkerThread, std::ref(ios)));
 	}
-	catch (std::exception& e) {
-		Cout(e.what(), "\n");
+
+	std::this_thread::sleep_for(std::chrono::seconds(1));
+
+	//strand.post(std::bind(&PrintNum, 1));
+	//strand.post(std::bind(&PrintNum, 2));
+	//strand.post(std::bind(&PrintNum, 3));
+	//strand.post(std::bind(&PrintNum, 4));		// post: 顺序不重叠执行
+	//strand.post(std::bind(&PrintNum, 5));		// wrap: 乱序不重叠执行
+
+	ios.post(std::bind(&PrintNum, 1));	// 重叠执行
+	ios.post(std::bind(&PrintNum, 2));
+	ios.post(std::bind(&PrintNum, 3));
+	ios.post(std::bind(&PrintNum, 4));
+	ios.post(std::bind(&PrintNum, 5));
+
+	work.reset();
+	for (var t : worker_threads) {
+		t.join();
 	}
 	return 0;
 }

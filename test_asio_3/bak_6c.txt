@@ -1,4 +1,4 @@
-﻿// https://www.gamedev.net/blogs/entry/2249317-a-guide-to-getting-started-with-boostasio/
+// https://www.gamedev.net/blogs/entry/2249317-a-guide-to-getting-started-with-boostasio/
 // 6c
 
 #define var decltype(auto)
@@ -6,7 +6,6 @@
 #include "asio/io_service.hpp"
 #include "asio/basic_waitable_timer.hpp"
 #include "asio/strand.hpp"
-#include "asio/ip/tcp.hpp"
 #include <iostream>
 #include <memory>
 #include <thread>
@@ -47,11 +46,29 @@ void WorkerThread(asio::io_service& io_service) {
 	CoutT("thread finish\n");
 }
 
+typedef asio::basic_waitable_timer<std::chrono::system_clock> Timer;
+void TimerHandler(asio::error_code const& err, Timer& timer, asio::io_service::strand& strand) {
+	if (err) {
+		CoutT("error: ", err);
+	}
+	else {
+		CoutT("timerHandler.\n");
+		timer.expires_from_now(std::chrono::seconds(1));
+		timer.async_wait([&](auto const& e) { TimerHandler(e, timer, strand); });
+	}
+}
+
+void PrintNum(int x) {
+	CoutT("x: ", x, "\n");
+	std::this_thread::sleep_for(std::chrono::seconds(1));
+}
+
 int main(int argc, char* argv[])
 {
 	asio::io_service ios;
 	var work = std::make_shared<asio::io_service::work>(ios);
 	asio::io_service::strand strand(ios);
+
 	Cout("Press [return] to exit.\n");
 
 	std::vector<std::thread> worker_threads;
@@ -60,25 +77,19 @@ int main(int argc, char* argv[])
 		worker_threads.emplace_back(std::bind(&::WorkerThread, std::ref(ios)));
 	}
 
-	asio::ip::tcp::socket sock(ios);
-	try {
-		asio::ip::tcp::resolver resolver(ios);
-		asio::ip::tcp::resolver::query query("www.baidu.com", "80");
-		var iter = resolver.resolve(query);
-		var endpoint = *iter;
-		Cout("connect to ", endpoint.host_name()," ", endpoint.service_name(), "\n");
-		sock.connect(endpoint);
-	}
-	catch (std::exception& ex) {
-		CoutT("exception: ", ex.what(), "\n");
-	}
+	std::this_thread::sleep_for(std::chrono::seconds(1));
+
+	strand.post(std::bind(PrintNum, 1));
+	strand.post(std::bind(PrintNum, 2));
+	strand.post(std::bind(PrintNum, 3));
+	strand.post(std::bind(PrintNum, 4));
+	strand.post(std::bind(PrintNum, 5));
+
+	Timer timer(ios);
+	timer.expires_from_now(std::chrono::seconds(1));
+	timer.async_wait(strand.wrap(std::bind(TimerHandler, std::placeholders::_1, std::ref(timer), std::ref(strand))));
 
 	std::cin.get();
-
-	asio::error_code ec;
-	sock.shutdown(asio::ip::tcp::socket::shutdown_both, ec);
-	sock.close(ec);
-
 	ios.stop();
 
 	for (var t : worker_threads) {
