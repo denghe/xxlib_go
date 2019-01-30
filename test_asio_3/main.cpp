@@ -7,6 +7,7 @@
 #include "asio/basic_waitable_timer.hpp"
 #include "asio/strand.hpp"
 #include "asio/ip/tcp.hpp"
+#include "asio/write.hpp"
 #include <iostream>
 #include <memory>
 #include <thread>
@@ -27,83 +28,65 @@ void CoutT(Args const& ... args) {
 	Cout("[", std::this_thread::get_id(), "] ", args...);
 }
 
-void WorkerThread(asio::io_service& io_service) {
-	CoutT("thread start\n");
-
-	while (true) {
-		try {
-			asio::error_code ec;
-			io_service.run(ec);
-			if (ec) {
-				CoutT("asio error: ", ec, "\n");
+struct Peer : std::enable_shared_from_this<Peer> {
+	asio::ip::tcp::socket&& socket;
+	std::array<char, 512> buf;
+	Peer(asio::ip::tcp::socket&& socket)
+		: socket(std::move(socket))
+	{
+	}
+	void BeginRead() {
+		socket.async_read_some(asio::buffer(buf), [this, self = shared_from_this()](asio::error_code const& ec, std::size_t const& length) {
+			if (!ec) {
+				BeginWrite(length);	// echo
 			}
-			break;
-		}
-		catch (std::exception& ex) {
-			CoutT("exception: ", ex.what(), "\n");
-		}
+			else {
+				CoutT("Peer read error: ", ec, "\n");
+			}
+		});
 	}
+	void BeginWrite(std::size_t const& length) {
+		asio::async_write(socket, asio::buffer(buf, length), [this, self = shared_from_this()](asio::error_code const& ec, std::size_t length) {
+			if (!ec) {
+				BeginRead();
+			}
+			else {
+				CoutT("Peer write error: ", ec, "\n");
+			}
+		});
+	}
+};
 
-	CoutT("thread finish\n");
-}
-
-void OnAccept(asio::error_code const& ec, asio::ip::tcp::socket& sock) {
-	if (ec) {
-		CoutT("error: ", ec, "\n");
+struct Acceptor {
+	asio::ip::tcp::acceptor acceptor;
+	Acceptor(asio::io_context& ios, uint16_t port)
+		: acceptor(ios, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port))
+	{
+		BeginAccept();
 	}
-	else {
-		CoutT("accepted!\n");
+	void BeginAccept() {
+		acceptor.async_accept([this](asio::error_code const& ec, asio::ip::tcp::socket& socket) {
+			if (!ec) {
+				CoutT("Acceptor accepted!\n");
+				std::make_shared<Peer>(std::move(socket))->BeginRead();
+			}
+			else {
+				CoutT("Acceptor error: ", ec, "\n");
+			}
+			BeginAccept();
+		});
 	}
-}
+};
 
 int main(int argc, char* argv[])
 {
-	asio::io_service ios;
-	var work = std::make_shared<asio::io_service::work>(ios);
-	asio::io_service::strand strand(ios);
-	Cout("Press [return] to exit.\n");
-
-	std::vector<std::thread> worker_threads;
-	for (size_t i = 0; i < 2; i++)
-	{
-		worker_threads.emplace_back(std::bind(&::WorkerThread, std::ref(ios)));
-	}
-
-	asio::ip::tcp::acceptor acceptor(ios);
-	asio::ip::tcp::socket sock(ios);
 	try {
-		asio::ip::tcp::resolver resolver(ios);
-
-		//asio::ip::tcp::acceptor acceptor(io_context);
-		//asio::ip::tcp::endpoint endpoint(asio::ip::tcp::v4(), port);
-		//acceptor.open(endpoint.protocol());
-		//acceptor.set_option(asio::ip::tcp::acceptor::reuse_address(true));
-		//acceptor.bind(endpoint);
-		//acceptor.listen();
-
-		asio::ip::tcp::resolver::query query("127.0.0.1", "12345");
-		asio::ip::tcp::endpoint endpoint = *resolver.resolve(query);
-		acceptor.open(endpoint.protocol());
-		acceptor.set_option(asio::ip::tcp::acceptor::reuse_address(false));
-		acceptor.bind(endpoint);
-		acceptor.listen(asio::socket_base::max_connections);
-		acceptor.async_accept(sock, [&](auto const&ec) { OnAccept(ec, sock); });
-		Cout("listening to ", endpoint.address(), ":", endpoint.port(), "\n");
+		asio::io_context ios;
+		Acceptor acceptor(ios, 12345);
+		ios.run();
 	}
-	catch (std::exception& ex) {
-		CoutT("exception: ", ex.what(), "\n");
-	}
-
-	std::cin.get();
-
-	asio::error_code ec;
-	sock.shutdown(asio::ip::tcp::socket::shutdown_both, ec);
-	sock.close(ec);
-
-	ios.stop();
-
-	for (var t : worker_threads) {
-		t.join();
+	catch (std::exception& e) {
+		Cout("Exception: ", e.what(), "\n");
 	}
 	return 0;
 }
