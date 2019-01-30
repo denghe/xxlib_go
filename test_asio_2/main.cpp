@@ -25,6 +25,7 @@ int main(int argc, char* argv[])
 		tcp::socket s(io_context);
 		tcp::resolver resolver(io_context);
 		asio::connect(s, resolver.resolve("127.0.0.1", "12345"));
+		s.set_option(asio::ip::tcp::no_delay(true));
 
 		char request[128];
 
@@ -39,7 +40,7 @@ int main(int argc, char* argv[])
 			if (n == 1) {
 				if (++count == 100000) {
 					std::cout << double(std::chrono::nanoseconds(std::chrono::system_clock::now() - t).count()) / 1000000000 << std::endl;
-					return 0;
+					goto TheEnd;
 				}
 			}
 		}
@@ -48,6 +49,9 @@ int main(int argc, char* argv[])
 	{
 		std::cerr << "Exception: " << e.what() << "\n";
 	}
+
+	TheEnd:
+	std::cin.get();
 
 	return 0;
 }

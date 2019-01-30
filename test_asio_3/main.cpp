@@ -1,18 +1,5 @@
-﻿// https://www.gamedev.net/blogs/entry/2249317-a-guide-to-getting-started-with-boostasio/
-// 7c
-
-#define var decltype(auto)
-
-#include "asio/io_service.hpp"
-#include "asio/basic_waitable_timer.hpp"
-#include "asio/strand.hpp"
-#include "asio/ip/tcp.hpp"
-#include "asio/write.hpp"
+﻿#include "asio.hpp"
 #include <iostream>
-#include <memory>
-#include <thread>
-#include <mutex>
-#include <chrono>
 #include <functional>
 
 std::mutex coutMutex;
@@ -22,14 +9,13 @@ void Cout(Args const& ... args) {
 	std::initializer_list<int> n{ ((std::cout << args), 0)... };
 	(void)(n);
 }
-
 template<typename ...Args>
 void CoutT(Args const& ... args) {
 	Cout("[", std::this_thread::get_id(), "] ", args...);
 }
 
 struct Peer : std::enable_shared_from_this<Peer> {
-	asio::ip::tcp::socket&& socket;
+	asio::ip::tcp::socket socket;
 	std::array<char, 512> buf;
 	Peer(asio::ip::tcp::socket&& socket)
 		: socket(std::move(socket))
@@ -38,7 +24,7 @@ struct Peer : std::enable_shared_from_this<Peer> {
 	void BeginRead() {
 		socket.async_read_some(asio::buffer(buf), [this, self = shared_from_this()](asio::error_code const& ec, std::size_t const& length) {
 			if (!ec) {
-				BeginWrite(length);	// echo
+				BeginWrite(length);						// echo
 			}
 			else {
 				CoutT("Peer read error: ", ec, "\n");
@@ -46,7 +32,7 @@ struct Peer : std::enable_shared_from_this<Peer> {
 		});
 	}
 	void BeginWrite(std::size_t const& length) {
-		asio::async_write(socket, asio::buffer(buf, length), [this, self = shared_from_this()](asio::error_code const& ec, std::size_t length) {
+		asio::async_write(socket, asio::buffer(buf, length), [this, self = shared_from_this()](asio::error_code const& ec, std::size_t const& length) {
 			if (!ec) {
 				BeginRead();
 			}
@@ -68,6 +54,7 @@ struct Acceptor {
 		acceptor.async_accept([this](asio::error_code const& ec, asio::ip::tcp::socket& socket) {
 			if (!ec) {
 				CoutT("Acceptor accepted!\n");
+				socket.set_option(asio::ip::tcp::no_delay(true));
 				std::make_shared<Peer>(std::move(socket))->BeginRead();
 			}
 			else {
@@ -80,13 +67,14 @@ struct Acceptor {
 
 int main(int argc, char* argv[])
 {
+	CoutT("Begin\n");
 	try {
 		asio::io_context ios;
 		Acceptor acceptor(ios, 12345);
 		ios.run();
 	}
 	catch (std::exception& e) {
-		Cout("Exception: ", e.what(), "\n");
+		CoutT("Exception: ", e.what(), "\n");
 	}
 	return 0;
 }
