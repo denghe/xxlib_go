@@ -1,5 +1,6 @@
 ﻿#include "uv.h"
 #include <chrono>
+#include <cassert>
 #include <iostream>
 size_t counter = 0;
 
@@ -42,7 +43,7 @@ int main() {
 			free(buf->base);
 			if (nread < 0 || (counter += nread) > 100000) {
 				auto h = (uv_handle_t*)stream;
-				if (uv_is_closing(h)) return;
+				assert(!uv_is_closing(h));
 				uv_close(h, [](uv_handle_t* h) {
 					//free(h);
 				});

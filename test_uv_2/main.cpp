@@ -1,4 +1,5 @@
 ﻿#include "uv.h"
+#include <cassert>
 int Send(uv_stream_t* const& stream, char const* const& buf, ssize_t const& dataLen) {
 	struct uv_write_t_ex : uv_write_t {
 		uv_buf_t buf;
@@ -35,7 +36,7 @@ int main() {
 			free(buf->base);
 			if (nread < 0) {
 				auto h = (uv_handle_t*)stream;
-				if (uv_is_closing(h)) return;
+				assert(!uv_is_closing(h));
 				uv_close(h, [](uv_handle_t* h) {
 					free(h);
 				});
