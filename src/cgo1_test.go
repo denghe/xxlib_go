@@ -1,18 +1,9 @@
 package main
-/*
-void Add1(int* n) {
-	++*n;
-}
-*/
-import "C"
 import "testing"
 
-func main() {
-
+func BenchmarkLoops1(b *testing.B) {
+	TestD2ULL1(b.N)
 }
-
-func BenchmarkLoops(b *testing.B) {
-	for i:=0; i< b.N; i++ {
-
-	}
+func BenchmarkLoops2(b *testing.B) {
+	TestD2ULL2(b.N)
 }
