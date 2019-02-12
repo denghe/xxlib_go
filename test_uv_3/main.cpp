@@ -2,14 +2,18 @@
 #include <string>
 #include <memory>
 #include <cassert>
+#include <vector>
 
+struct UvTcpPeer;
 struct UvLoop : uv_loop_t {
+	std::vector<std::shared_ptr<UvTcpPeer>> peers;
 	int Init() noexcept {
 		return uv_loop_init(this);
 	}
 };
 
-struct UvTcpPeer : uv_tcp_t {
+struct UvTcpPeer : uv_tcp_t, std::enable_shared_from_this<UvTcpPeer> {
+	size_t indexAtPeers = -1;
 	int Init(uv_loop_t* const& loop) noexcept {
 		return uv_tcp_init(loop, this);
 	}
@@ -20,7 +24,10 @@ struct UvTcpPeer : uv_tcp_t {
 		}, [](uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
 			auto self = (UvTcpPeer*)stream;
 			if (nread > 0) {
-				if (self->Unpack(buf->base, nread)) return;
+				if (self->Unpack(buf->base, nread)) {
+					free(buf->base);
+					return;
+				}
 			}
 			free(buf->base);
 			if (nread < 0) {
@@ -45,7 +52,16 @@ struct UvTcpPeer : uv_tcp_t {
 		auto h = (uv_handle_t*)this;
 		assert(!uv_is_closing(h));
 		uv_close(h, [](uv_handle_t* h) {
-			delete (UvTcpPeer*)h;
+			auto self = (UvTcpPeer*)h;
+			auto& peers = ((UvLoop*)self->loop)->peers;
+			auto idx = self->indexAtPeers;
+			assert(idx != -1 && idx < peers.size());
+			auto last = peers.size() - 1;
+			if (idx < last) {
+				peers[last]->indexAtPeers = idx;
+				peers[idx] = std::move(peers[last]);
+			}
+			peers.pop_back();
 		});
 	}
 	virtual int Unpack(char const* const& buf, size_t const& len) = 0;
@@ -69,8 +85,13 @@ struct UvTcpListener : uv_tcp_t {
 	int Listen(int const& backlog = 128) {
 		return uv_listen((uv_stream_t*)this, backlog, [](uv_stream_t* server, int status) {
 			if (status) return;
-			auto peer = new PeerType();
+
+			auto peer = std::make_shared<PeerType>();
 			if (peer->Init(server->loop)) return;
+			auto& peers = ((UvLoop*)server->loop)->peers;
+			peer->indexAtPeers = peers.size();
+			peers.push_back(peer);
+
 			if (uv_accept(server, (uv_stream_t*)&*peer)) {
 				peer->Close();
 				return;
@@ -80,8 +101,16 @@ struct UvTcpListener : uv_tcp_t {
 			self->OnAccept(peer);
 		});
 	}
-	virtual void OnAccept(PeerType* peer) = 0;	// todo: weak_ptr
+	virtual void OnAccept(std::weak_ptr<PeerType> peer) = 0;
 };
+
+struct Peer : UvTcpPeer {
+
+};
+//struct Listener : UvTcpListener {
+//
+//};
+
 
 int main() {
 	return 0;
