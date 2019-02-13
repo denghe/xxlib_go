@@ -19,8 +19,15 @@ struct Buffer {
 
 	inline void Reserve(size_t const& cap) noexcept {
 		if (cap <= this->cap) return;
-		buf = (uint8_t*)realloc(buf, cap);
-		this->cap = cap;
+		if (!this->cap) {
+			this->cap = cap;
+		}
+		else {
+			while (this->cap < cap) {
+				this->cap *= 2;
+			}
+		}
+		buf = (uint8_t*)realloc(buf, this->cap);
 	}
 	template<typename T, typename = std::enable_if_t<sizeof(T) == 1>>
 	inline void Append(T const* const& buf, size_t const& len) {

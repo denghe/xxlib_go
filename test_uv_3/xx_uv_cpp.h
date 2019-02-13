@@ -211,7 +211,7 @@ struct UvTcpClient : UvItem, std::enable_shared_from_this<UvTcpClient> {
 				return;
 			}
 
-			auto& items = container_of(req_->handle->loop, UvLoop, uvLoop)->items;
+			auto& items = client->loop.items;
 			peer->indexAtContainer = (int)items.size();
 			items.push_back(peer);
 

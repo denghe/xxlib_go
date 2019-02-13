@@ -33,7 +33,7 @@ struct PackagePeer : UvTcpPeer {
 	std::function<int(PackagePeer&)> OnRecv;
 };
 
-struct PackageListenerSample : UvTcpListener {
+struct PackageListener : UvTcpListener {
 	inline virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept override {
 		return std::make_shared<PackagePeer>();
 	}
@@ -46,4 +46,16 @@ struct PackageListenerSample : UvTcpListener {
 			return 0;
 		};
 	};
+};
+
+struct PackageClient : UvTcpClient {
+	using UvTcpClient::UvTcpClient;
+	inline virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept override {
+		return std::make_shared<PackagePeer>();
+	}
+	inline virtual void OnConnect(int const& serial, std::weak_ptr<UvTcpPeer> peer_) noexcept override {
+		if (auto peer = peer_.lock()) {
+			peer->Send("a", 1);
+		}
+	}
 };
