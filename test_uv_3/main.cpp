@@ -19,15 +19,15 @@ struct UvTcpListener;
 
 struct UvLoop {
 	uv_loop_t uvLoop;
-	UvLoop() = default;
-	UvLoop(UvLoop const&) = delete;
-	UvLoop& operator=(UvLoop const&) = delete;
 	std::vector<std::shared_ptr<UvTcpPeer>> peers;
 	std::vector<std::shared_ptr<UvTcpListener>> listeners;
 
-	inline int Init() noexcept {
-		return uv_loop_init(&uvLoop);
+	UvLoop() {
+		if (int r = uv_loop_init(&uvLoop)) throw r;
 	}
+	UvLoop(UvLoop const&) = delete;
+	UvLoop& operator=(UvLoop const&) = delete;
+
 	inline int Run(uv_run_mode const& mode = UV_RUN_DEFAULT) noexcept {
 		return uv_run(&uvLoop, mode);
 	}
@@ -39,7 +39,7 @@ struct UvLoop {
 		InitListener(listener, ip, port, backlog);
 		return rtv;
 	}
-	int InitListener(std::shared_ptr<UvTcpListener>&& listener, std::string const& ip, int const& port, int const& backlog);
+	int InitListener(std::shared_ptr<UvTcpListener>&& listener, std::string const& ip, int const& port, int const& backlog) noexcept;
 
 	~UvLoop() {
 		peers.clear();
@@ -51,10 +51,11 @@ struct UvLoop {
 
 struct UvTcpPeer {
 	uv_tcp_t uvTcp;
+	int indexAtContainer = -1;
+
 	UvTcpPeer() = default;
 	UvTcpPeer(UvTcpPeer const&) = delete;
 	UvTcpPeer& operator=(UvTcpPeer const&) = delete;
-	int indexAtContainer = -1;
 
 	inline int Init(uv_loop_t* const& loop) noexcept {
 		return uv_tcp_init(loop, &uvTcp);
@@ -111,11 +112,13 @@ struct UvTcpPeer {
 
 struct UvTcpListener {
 	uv_tcp_t uvTcp;
-	int indexAtContainer = -1;
 	sockaddr_in6 addr;
+	int indexAtContainer = -1;
+
 	UvTcpListener() = default;
 	UvTcpListener(UvTcpListener const&) = delete;
 	UvTcpListener& operator=(UvTcpListener const&) = delete;
+
 	inline int Init(UvLoop& uvloop) noexcept {
 		return uv_tcp_init(&uvloop.uvLoop, &uvTcp);
 	}
@@ -165,7 +168,7 @@ struct UvTcpListener {
 	inline virtual void OnAccept(std::weak_ptr<UvTcpPeer> peer) noexcept {};
 };
 
-inline int UvLoop::InitListener(std::shared_ptr<UvTcpListener>&& listener, std::string const& ip, int const& port, int const& backlog) {
+inline int UvLoop::InitListener(std::shared_ptr<UvTcpListener>&& listener, std::string const& ip, int const& port, int const& backlog) noexcept {
 	if (listener->Init(*this)) return -1;
 	if (ip.find(':') == std::string::npos) {
 		if (listener->SetAddress(ip, port)) goto LabEnd;
@@ -202,7 +205,6 @@ struct EchoListener : UvTcpListener {
 
 int main() {
 	UvLoop uvloop;
-	if (uvloop.Init()) return 0;
 	uvloop.CreateListener<EchoListener>("0.0.0.0", 12345);
 	uvloop.Run();
 	return 0;
