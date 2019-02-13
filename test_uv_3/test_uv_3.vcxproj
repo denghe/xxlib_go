@@ -82,7 +82,15 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="main.cpp" />
+    <ClCompile Include="main.cpp">
+      <FileType>CppClass</FileType>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="xx_buffer.h" />
+    <ClInclude Include="xx_uv_cpp.h" />
+    <ClInclude Include="xx_uv_cpp_echo.h" />
+    <ClInclude Include="xx_uv_cpp_package.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
