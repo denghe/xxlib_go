@@ -1,10 +1,10 @@
-#pragma once
+ï»¿#pragma once
 #include "xx_uv_cpp.h"
 #include "xx_buffer.h"
 #include <functional>
 #include <deque>
 
-// Ö§³Ö 4 ×Ö½Ú³¤¶È°üÍ·µÄ peer
+// æ”¯æŒ 4 å­—èŠ‚é•¿åº¦åŒ…å¤´çš„ peer
 
 struct PackagePeer : UvTcpPeer {
 	inline int Unpack(char const* const& recvBuf, size_t const& recvLen) noexcept override {
