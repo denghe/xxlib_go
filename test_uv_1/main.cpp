@@ -32,7 +32,10 @@ int main() {
 	uv_tcp_connect(req, &peer, (sockaddr*)&addr, [](uv_connect_t* req, int status) {
 		auto peer = ((uv_connect_t_ex*)req)->peer;
 		free(req);
-		if (status) return;
+		if (status) {
+			uv_close((uv_handle_t*)peer, nullptr);
+			return;
+		}
 		uv_read_start((uv_stream_t*)peer, [](uv_handle_t* h, size_t suggested_size, uv_buf_t* buf) {
 			buf->base = (char*)malloc(suggested_size);
 			buf->len = decltype(uv_buf_t::len)(suggested_size);
@@ -44,9 +47,7 @@ int main() {
 			if (nread < 0 || (counter += nread) > 100000) {
 				auto h = (uv_handle_t*)stream;
 				assert(!uv_is_closing(h));
-				uv_close(h, [](uv_handle_t* h) {
-					//free(h);
-				});
+				uv_close(h, nullptr);
 			}
 		});
 		Send((uv_stream_t*)peer, "a", 1);

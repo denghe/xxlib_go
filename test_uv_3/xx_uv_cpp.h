@@ -25,13 +25,13 @@ inline void SwapRemoveAt(ContainerType& items, int const& idx) {
 	items.pop_back();
 }
 
-struct UvItems {
+struct UvItem {
 	int indexAtContainer = -1;
 };
 
 struct UvLoop {
 	uv_loop_t uvLoop;
-	std::vector<std::shared_ptr<UvItems>> items;
+	std::vector<std::shared_ptr<UvItem>> items;
 
 	UvLoop() {
 		if (int r = uv_loop_init(&uvLoop)) throw r;
@@ -46,6 +46,9 @@ struct UvLoop {
 	template<typename ListenerType>
 	inline std::weak_ptr<ListenerType> CreateListener(std::string const& ip, int const& port, int const& backlog = 128) noexcept;
 
+	template<typename ClientType>
+	inline std::weak_ptr<ClientType> CreateClient() noexcept;
+
 	~UvLoop() {
 		items.clear();
 		int r = uv_loop_close(&uvLoop);
@@ -53,7 +56,7 @@ struct UvLoop {
 	}
 };
 
-struct UvTcp : UvItems {
+struct UvTcp : UvItem {
 	uv_tcp_t uvTcp;
 
 	inline int Init(uv_loop_t* const& loop) noexcept {
@@ -109,40 +112,10 @@ struct UvTcpPeer : UvTcp {
 };
 
 struct UvTcpListener : UvTcp {
-	sockaddr_in6 addr;
-
 	UvTcpListener() = default;
 	UvTcpListener(UvTcpListener const&) = delete;
 	UvTcpListener& operator=(UvTcpListener const&) = delete;
 
-	inline int SetAddress(std::string const& ipv4, int const& port) noexcept {
-		return uv_ip4_addr(ipv4.c_str(), port, (sockaddr_in*)&addr);
-	}
-	inline int SetAddress6(std::string const& ipv6, int const& port) noexcept {
-		return uv_ip6_addr(ipv6.c_str(), port, &addr);
-	}
-	inline int Bind() noexcept {
-		return uv_tcp_bind(&uvTcp, (sockaddr*)&addr, 0);
-	}
-	inline int Listen(int const& backlog = 128) noexcept {
-		return uv_listen((uv_stream_t*)&uvTcp, backlog, [](uv_stream_t* server, int status) {
-			if (status) return;
-			auto self = container_of(server, UvTcpListener, uvTcp);
-			auto peer = self->OnCreatePeer();
-			if (!peer || peer->Init(server->loop)) return;
-
-			auto& items = container_of(server->loop, UvLoop, uvLoop)->items;
-			peer->indexAtContainer = (int)items.size();
-			items.push_back(peer);
-
-			if (uv_accept(server, (uv_stream_t*)&peer->uvTcp)) {
-				peer->Close();
-				return;
-			}
-			peer->ReadStart();
-			self->OnAccept(peer);
-		});
-	}
 	inline virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept = 0;
 	inline virtual void OnAccept(std::weak_ptr<UvTcpPeer> peer) noexcept {};
 };
@@ -153,16 +126,115 @@ inline std::weak_ptr<ListenerType> UvLoop::CreateListener(std::string const& ip,
 	std::weak_ptr<ListenerType> rtv(listener);
 
 	if (listener->Init(&uvLoop)) return rtv;
-	if (ip.find(':') == std::string::npos) {
-		if (listener->SetAddress(ip, port)) goto LabEnd;
+
+	sockaddr_in6 addr;
+	if (ip.find(':') == std::string::npos) {								// ipv4
+		if (uv_ip4_addr(ip.c_str(), port, (sockaddr_in*)&addr)) goto LabEnd;
 	}
-	else if (listener->SetAddress6(ip, port)) goto LabEnd;
-	if (listener->Bind()) goto LabEnd;
-	if (listener->Listen(backlog)) goto LabEnd;
+	else {																	// ipv6
+		if (uv_ip6_addr(ip.c_str(), port, &addr)) goto LabEnd;
+	}
+	if (uv_tcp_bind(&listener->uvTcp, (sockaddr*)&addr, 0)) goto LabEnd;
+
+	if (uv_listen((uv_stream_t*)&listener->uvTcp, backlog, [](uv_stream_t* server, int status) {
+		if (status) return;
+		auto self = container_of(server, UvTcpListener, uvTcp);
+		auto peer = self->OnCreatePeer();
+		if (!peer || peer->Init(server->loop)) return;
+
+		auto& items = container_of(server->loop, UvLoop, uvLoop)->items;
+		peer->indexAtContainer = (int)items.size();
+		items.push_back(peer);
+
+		if (uv_accept(server, (uv_stream_t*)&peer->uvTcp)) {
+			peer->Close();
+			return;
+		}
+		peer->ReadStart();
+		self->OnAccept(peer);
+	})) goto LabEnd;
+
 	listener->indexAtContainer = (int)items.size();
 	items.push_back(listener);
 	return rtv;
 LabEnd:
 	uv_close((uv_handle_t*)&listener->uvTcp, nullptr);
+	return rtv;
+}
+
+struct UvTcpClient : UvItem, std::enable_shared_from_this<UvTcpClient> {
+	UvLoop& loop;
+	int serial = 0;
+	// todo: map: serial, req
+	// todo: Connect timeout support
+
+	UvTcpClient(UvLoop& loop) noexcept : loop(loop) {}
+	UvTcpClient(UvTcpClient const&) = delete;
+	UvTcpClient& operator=(UvTcpClient const&) = delete;
+
+	int Connect(std::string const& ip, int const& port, int const& timeoutMS = 0) noexcept {
+		auto peer = OnCreatePeer();
+		if (peer->Init(&loop.uvLoop)) return -1;
+
+		sockaddr_in6 addr;
+		if (ip.find(':') == std::string::npos) {								// ipv4
+			if (uv_ip4_addr(ip.c_str(), port, (sockaddr_in*)&addr)) goto LabEnd;
+		}
+		else {																	// ipv6
+			if (uv_ip6_addr(ip.c_str(), port, &addr)) goto LabEnd;
+		}
+
+		struct uv_connect_t_ex : uv_connect_t {
+			std::shared_ptr<UvTcpPeer> peer;
+			std::weak_ptr<UvTcpClient> client;
+			int serial;
+		};
+		auto req = new uv_connect_t_ex();
+		req->peer = peer;
+		req->client = shared_from_this();
+		req->serial = ++serial;
+
+		if (uv_tcp_connect(req, &peer->uvTcp, (sockaddr*)&addr, [](uv_connect_t* req_, int status) {
+			auto req = (uv_connect_t_ex*)req_;
+			auto peer = std::move(req->peer);
+			auto client = req->client.lock();
+			auto serial = req->serial;
+			delete req;
+
+			if (!client) {														// client is disposed
+				uv_close((uv_handle_t*)&peer->uvTcp, nullptr);
+				return;
+			}
+			if (status) {
+				uv_close((uv_handle_t*)&peer->uvTcp, nullptr);
+				client->OnConnect(serial, std::weak_ptr<UvTcpPeer>());			// connect failed.
+				return;
+			}
+
+			auto& items = container_of(req_->handle->loop, UvLoop, uvLoop)->items;
+			peer->indexAtContainer = (int)items.size();
+			items.push_back(peer);
+
+			peer->ReadStart();
+			client->OnConnect(serial, peer);									// connect success
+		})) goto LabEnd;
+
+		return serial;	// todo: insert to dict & return serial key
+
+	LabEnd:
+		uv_close((uv_handle_t*)&peer->uvTcp, nullptr);
+		return -1;
+	}
+
+	inline virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept = 0;
+	inline virtual void OnConnect(int const& serial, std::weak_ptr<UvTcpPeer> peer) noexcept {};
+};
+
+template<typename ClientType>
+inline std::weak_ptr<ClientType> UvLoop::CreateClient() noexcept {
+	auto client = std::make_shared<ClientType>(*this);
+	std::weak_ptr<ClientType> rtv(client);
+	client->indexAtContainer = (int)items.size();
+	items.push_back(client);
 	return rtv;
 }
