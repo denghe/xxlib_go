@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include "uv.h"
+#include <stdint.h>
 #include <string>
 #include <memory>
 #include <cassert>
@@ -84,7 +85,7 @@ struct UvTcpPeer : UvTcp {
 		}, [](uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
 			auto self = container_of(stream, UvTcpPeer, uvTcp);
 			if (nread > 0) {
-				nread = self->Unpack(buf->base, nread);
+				nread = self->Unpack(buf->base, (uint32_t)nread);
 			}
 			free(buf->base);
 			if (nread < 0) {
@@ -108,7 +109,7 @@ struct UvTcpPeer : UvTcp {
 			}
 		});
 	}
-	inline virtual int Unpack(char const* const& buf, size_t const& len) noexcept = 0;
+	inline virtual int Unpack(char const* const& buf, uint32_t const& len) noexcept = 0;
 };
 
 struct UvTcpListener : UvTcp {

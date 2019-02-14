@@ -2,14 +2,51 @@
 #include "xx_uv_cpp.h"
 #include "xx_buffer.h"
 #include <functional>
-#include <deque>
+#include <array>
+#include <string>
+#include <memory>
 
-// 支持 4 字节长度包头的 peer
+#ifdef max
+#undef max
+#endif
+#ifdef min
+#undef min
+#endif
+
+// 支持 4 字节长度包头
+struct BBuffer;
+struct BItem;
+struct UvLoopEx : UvLoop {
+	using UvLoop::UvLoop;
+
+	typedef std::shared_ptr<BItem> (*Creator)();
+	inline static std::array<Creator, 1 << (sizeof(uint16_t) * 8)> creators;
+
+	std::unordered_map<void*, uint32_t> ptrs;
+	std::unordered_map<uint32_t, std::shared_ptr<BItem>> idxs;
+	std::unordered_map<uint32_t, std::shared_ptr<std::string>> idxs1;
+
+	static void Register(uint16_t const& typeId, Creator c) noexcept {
+		creators[typeId] = c;
+	}
+
+	static std::shared_ptr<BItem> CreateByTypeId(uint16_t typeId) {
+		return creators[typeId] ? creators[typeId]() : std::shared_ptr<BItem>();
+	}
+};
+
+
+
+
+
+
+
+
 
 struct PackagePeer : UvTcpPeer {
-	inline int Unpack(char const* const& recvBuf, size_t const& recvLen) noexcept override {
+	inline int Unpack(char const* const& recvBuf, uint32_t const& recvLen) noexcept override {
 		buf.Append(recvBuf, recvLen);
-		size_t offset = 0;
+		uint32_t offset = 0;
 		while (offset + 4 <= buf.len) {							// ensure header len( 4 bytes )
 			auto len = buf[offset + 0] + (buf[offset + 1] << 8) + (buf[offset + 2] << 16) + (buf[offset + 3] << 24);
 			if (len <= 0 /* || len > maxLimit */) return -1;	// invalid length
