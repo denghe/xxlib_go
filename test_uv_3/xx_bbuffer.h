@@ -1,13 +1,15 @@
 #pragma once
-#include "xx_uv_cpp_package.h"
 #include "xx_buffer.h"
 #include <string>
+#include <initializer_list>
+#include <unordered_map>
+#include <array>
 
 struct BBuffer;
 
 // 基础适配模板
 template<typename T, typename ENABLED = void>
-struct BFunc {
+struct BFuncs {
 	static inline void WriteTo(BBuffer& bb, T const& in) noexcept {
 		assert(false);
 	}
@@ -18,52 +20,78 @@ struct BFunc {
 };
 
 // 所有可序列化类的基类
-struct BItem {
+struct BObject {
 	inline virtual uint16_t GetTypeId() const noexcept { return 0; }
 	inline virtual void ToBBuffer(BBuffer& bb) const noexcept {}
 	inline virtual int FromBBuffer(BBuffer& bb) noexcept { return 0; }
 };
 
-struct BBuffer : Buffer, BItem {
-	UvLoopEx& loop;
-	BBuffer(UvLoopEx& loop, size_t const& cap = 0) : loop(loop) {}
+struct BBuffer : Buffer, BObject {
 	uint32_t offset = 0;													// 读指针偏移量
 	uint32_t offsetRoot = 0;												// offset值写入修正
 	uint32_t readLengthLimit = 0;											// 主用于传递给容器类进行长度合法校验
 
-	template<typename T>
-	void Write(T const& v) noexcept;
+	std::unordered_map<void*, uint32_t> ptrs;
+	std::unordered_map<uint32_t, std::shared_ptr<BObject>> idxs;
+	std::unordered_map<uint32_t, std::shared_ptr<std::string>> idxs1;
+
+
+	using Buffer::Buffer;
+	BBuffer(BBuffer const&) = delete;
+	BBuffer& operator=(BBuffer&&) = default;
+	BBuffer& operator=(BBuffer const&) = delete;
+
+
+	typedef std::shared_ptr<BObject>(*Creator)();
+	inline static std::array<Creator, 1 << (sizeof(uint16_t) * 8)> creators;
+
+	inline static void Register(uint16_t const& typeId, Creator c) noexcept {
+		creators[typeId] = c;
+	}
+
+	inline static std::shared_ptr<BObject> CreateByTypeId(uint16_t typeId) {
+		return creators[typeId] ? creators[typeId]() : std::shared_ptr<BObject>();
+	}
+
+	template<typename ...TS>
+	void Write(TS const& ...vs) noexcept;
+
+	template<typename T, typename ...TS>
+	int ReadCore(T& v, TS&...vs) noexcept;
 
 	template<typename T>
-	int Read(T& v) noexcept;
+	int ReadCore(T& v) noexcept;
+
+	template<typename ...TS>
+	int Read(TS&...vs) noexcept;
 
 	template<typename T>
 	void WriteRoot(std::shared_ptr<T> const& v) noexcept {
-		loop.ptrs.clear();
+		ptrs.clear();
 		offsetRoot = len;
 		Write(v);
 	}
 
 	template<typename T>
 	int ReadRoot(std::shared_ptr<T>& v) noexcept {
-		loop.idxs.clear();
-		loop.idxs1.clear();
+		idxs.clear();
+		idxs1.clear();
 		offsetRoot = offset;
 		int r = Read(v);
-		loop.idxs.clear();
-		loop.idxs1.clear();
+		idxs.clear();
+		idxs1.clear();
 		return r;
 	}
 
 	template<typename T>
 	void WritePtr(std::shared_ptr<T> const& v) noexcept {
-		static_assert(std::is_base_of_v<BItem, T> || std::is_same_v<std::string, T>, "not support type??");
+		static_assert(std::is_base_of_v<BObject, T> || std::is_same_v<std::string, T>, "not support type??");
 		uint16_t typeId = 0;
 		if (!v) {
 			Write(typeId);
 			return;
 		}
-		if constexpr (std::is_base_of_v<BItem, T>) {
+		if constexpr (std::is_base_of_v<BObject, T>) {
 			typeId = v->GetTypeId();
 			assert(typeId);					// forget Register TypeId ? 
 		}
@@ -71,17 +99,17 @@ struct BBuffer : Buffer, BItem {
 
 		Write(typeId);
 
-		auto iter = loop.ptrs.find((void*)&*v);
+		auto iter = ptrs.find((void*)&*v);
 		uint32_t offs;
-		if (iter == loop.ptrs.end()) {
+		if (iter == ptrs.end()) {
 			offs = len - offsetRoot;
-			loop.ptrs[(void*)&*v] = offs;
+			ptrs[(void*)&*v] = offs;
 		}
 		else {
 			offs = iter->second;
 		}
 		Write(offs);
-		if (iter == loop.ptrs.end()) {
+		if (iter == ptrs.end()) {
 			if constexpr (std::is_same_v<std::string, T>) {
 				Write(*v);
 			}
@@ -93,7 +121,7 @@ struct BBuffer : Buffer, BItem {
 
 	template<typename T>
 	int ReadPtr(std::shared_ptr<T>& v) noexcept {
-		static_assert(std::is_base_of_v<BItem, T> || std::is_same_v<std::string, T>, "not support type??");
+		static_assert(std::is_base_of_v<BObject, T> || std::is_same_v<std::string, T>, "not support type??");
 		v.reset();
 		uint16_t typeId;
 		if (auto r = Read(typeId)) return r;
@@ -101,10 +129,10 @@ struct BBuffer : Buffer, BItem {
 		if constexpr (std::is_same_v<std::string, T>) {
 			if (typeId != 1) return -2;
 		}
-		else if constexpr (std::is_base_of_v<BItem, T>) {
+		else if constexpr (std::is_base_of_v<BObject, T>) {
 			if (typeId < 2) return -2;
 		}
-		if (typeId > 2 && !loop.creators[typeId]) return -1;
+		if (typeId > 2 && !creators[typeId]) return -1;
 
 		auto offs = offset - offsetRoot;
 		uint32_t ptrOffset;
@@ -112,26 +140,26 @@ struct BBuffer : Buffer, BItem {
 		if (ptrOffset == offs) {
 			if constexpr (std::is_same_v<std::string, T>) {
 				v = std::make_shared<std::string>();
-				loop.idxs1[ptrOffset] = v;
+				idxs1[ptrOffset] = v;
 				if (auto r = Read(*v)) return r;
 			}
 			else {
-				auto o = loop.CreateByTypeId(typeId);
+				auto o = CreateByTypeId(typeId);
 				v = std::dynamic_pointer_cast<T>(o);
 				if (!v) return -3;
-				loop.idxs[ptrOffset] = o;
+				idxs[ptrOffset] = o;
 				if (auto r = o->FromBBuffer(*this)) return r;
 			}
 		}
 		else {
 			if constexpr (std::is_same_v<std::string, T>) {
-				auto iter = loop.idxs1.find(ptrOffset);
-				if (iter == loop.idxs1.end()) return -4;
+				auto iter = idxs1.find(ptrOffset);
+				if (iter == idxs1.end()) return -4;
 				v = iter->second;
 			}
 			else {
-				auto iter = loop.idxs.find(ptrOffset);
-				if (iter == loop.idxs.end()) return -5;
+				auto iter = idxs.find(ptrOffset);
+				if (iter == idxs.end()) return -5;
 				if (iter->second->GetTypeId() != typeId) return -6;
 				v = std::dynamic_pointer_cast<T>(iter->second);
 				if (!v) return -7;
@@ -140,40 +168,14 @@ struct BBuffer : Buffer, BItem {
 		return 0;
 	}
 
-	inline std::string ToString() {
-		std::string s;
-		for (uint32_t i = 0; i < len; i++) {
-			s += std::to_string((int)buf[i]) + " ";
-		}
-		return s;
-	}
-
-	inline virtual uint16_t GetTypeId() const noexcept override { return 2; }
-	inline virtual void ToBBuffer(BBuffer& bb) const noexcept override {
-		assert(this != &bb);
-		bb.Write(len);
-		bb.Append(buf, len);
-	}
-	inline virtual int FromBBuffer(BBuffer& bb) noexcept override {
-		assert(this != &bb);
-		uint32_t dataLen = 0;
-		if (auto r = bb.Read(dataLen)) return r;
-		if (bb.offset + dataLen > bb.len) return -1;
-		Clear();
-		Append(bb.buf + bb.offset, dataLen);
-		bb.offset += dataLen;
-		return 0;
-	}
 
 	template<typename SIn, typename UOut = std::make_unsigned_t<SIn>>
 	inline static UOut ZigZagEncode(SIn const& in) noexcept {
-		static_assert(std::is_signed_v<SIn>);
 		return (in << 1) ^ (in >> (sizeof(SIn) - 1));
 	}
 
 	template<typename UIn, typename SOut = std::make_signed_t<UIn>>
 	inline static SOut ZigZagDecode(UIn const& in) noexcept {
-		static_assert(std::is_unsigned_v<UIn>);
 		return (SOut)(in >> 1) ^ (-(SOut)(in & 1));
 	}
 
@@ -198,8 +200,7 @@ struct BBuffer : Buffer, BItem {
 			if (offset == len) return -1;
 			auto b = buf[offset++];
 			u |= (b & 0x7Fu) << shift;
-			if ((b & 0x80) == 0)
-			{
+			if ((b & 0x80) == 0) {
 				if constexpr (std::is_signed_v<T>) {
 					v = ZigZagDecode(u);
 				}
@@ -207,6 +208,37 @@ struct BBuffer : Buffer, BItem {
 			}
 		}
 		return -2;
+	}
+
+
+	inline virtual uint16_t GetTypeId() const noexcept override {
+		return 2;
+	}
+
+	inline virtual void ToBBuffer(BBuffer& bb) const noexcept override {
+		assert(this != &bb);
+		bb.Write(len);
+		bb.Append(buf, len);
+	}
+
+	inline virtual int FromBBuffer(BBuffer& bb) noexcept override {
+		assert(this != &bb);
+		uint32_t dataLen = 0;
+		if (auto r = bb.Read(dataLen)) return r;
+		if (bb.offset + dataLen > bb.len) return -1;
+		Clear();
+		Append(bb.buf + bb.offset, dataLen);
+		bb.offset += dataLen;
+		return 0;
+	}
+
+
+	inline std::string ToString() {
+		std::string s;
+		for (uint32_t i = 0; i < len; i++) {
+			s += std::to_string((int)buf[i]) + " ";
+		}
+		return s;
 	}
 };
 
@@ -216,7 +248,7 @@ struct BBuffer : Buffer, BItem {
 
 // 适配 1 字节长度的 数值 或 float( 这些类型直接 memcpy )
 template<typename T>
-struct BFunc<T, std::enable_if_t< (std::is_arithmetic_v<T> && sizeof(T) == 1) || (std::is_floating_point_v<T> && sizeof(T) == 4) >>
+struct BFuncs<T, std::enable_if_t< (std::is_arithmetic_v<T> && sizeof(T) == 1) || (std::is_floating_point_v<T> && sizeof(T) == 4) >>
 {
 	static inline void WriteTo(BBuffer& bb, T const &in) noexcept
 	{
@@ -235,7 +267,7 @@ struct BFunc<T, std::enable_if_t< (std::is_arithmetic_v<T> && sizeof(T) == 1) ||
 
 // 适配 2+ 字节整数( 变长读写 )
 template<typename T>
-struct BFunc<T, std::enable_if_t<std::is_integral_v<T> && sizeof(T) >= 2>>
+struct BFuncs<T, std::enable_if_t<std::is_integral_v<T> && sizeof(T) >= 2>>
 {
 	static inline void WriteTo(BBuffer& bb, T const &in) noexcept {
 		bb.WriteVarIntger(in);
@@ -247,20 +279,20 @@ struct BFunc<T, std::enable_if_t<std::is_integral_v<T> && sizeof(T) >= 2>>
 
 // 适配 enum( 根据原始数据类型调上面的适配 )
 template<typename T>
-struct BFunc<T, std::enable_if_t<std::is_enum_v<T>>>
+struct BFuncs<T, std::enable_if_t<std::is_enum_v<T>>>
 {
 	typedef std::underlying_type_t<T> UT;
 	static inline void WriteTo(BBuffer& bb, T const &in) noexcept {
-		BFunc<UT>::WriteTo(bb, (UT const&)in);
+		BFuncs<UT>::WriteTo(bb, (UT const&)in);
 	}
 	static inline int ReadFrom(BBuffer& bb, T &out) noexcept {
-		return BFunc<UT>::ReadFrom(bb, (UT&)out);
+		return BFuncs<UT>::ReadFrom(bb, (UT&)out);
 	}
 };
 
 // 适配 double
 template<>
-struct BFunc<double, void>
+struct BFuncs<double, void>
 {
 	static inline void WriteTo(BBuffer& bb, double const &in) noexcept
 	{
@@ -287,7 +319,7 @@ struct BFunc<double, void>
 			if (in == (double)i)
 			{
 				bb.buf[bb.len++] = 4;
-				BFunc<int32_t>::WriteTo(bb, i);
+				BFuncs<int32_t>::WriteTo(bb, i);
 			}
 			else
 			{
@@ -317,7 +349,7 @@ struct BFunc<double, void>
 		case 4:
 		{
 			int32_t i = 0;
-			if (auto rtv = BFunc<int32_t>::ReadFrom(bb, i)) return rtv;
+			if (auto rtv = BFuncs<int32_t>::ReadFrom(bb, i)) return rtv;
 			out = i;
 			return 0;
 		}
@@ -336,7 +368,7 @@ struct BFunc<double, void>
 
 // 适配 std::string ( 写入 32b长度 + 内容 )
 template<>
-struct BFunc<std::string, void> {
+struct BFuncs<std::string, void> {
 	static inline void WriteTo(BBuffer& bb, std::string const& in) noexcept {
 		bb.Write((uint32_t)in.size());
 		bb.Append(in.data(), (uint32_t)in.size());
@@ -344,7 +376,8 @@ struct BFunc<std::string, void> {
 	static inline int ReadFrom(BBuffer& bb, std::string& out) noexcept {
 		uint32_t len = 0;
 		if (auto r = bb.Read(len)) return r;
-		if (bb.offset + len > bb.len) return -1;
+		if (bb.readLengthLimit && bb.readLengthLimit < len) return -1;
+		if (bb.offset + len > bb.len) return -2;
 		out.assign((char*)bb.buf + bb.offset, len);
 		bb.offset += len;
 		return 0;
@@ -353,7 +386,7 @@ struct BFunc<std::string, void> {
 
 // 适配 std::shared_ptr<T> 以简化 Write Read 书写
 template<typename T>
-struct BFunc<std::shared_ptr<T>, std::enable_if_t<std::is_base_of_v<BItem, T> || std::is_same_v<std::string, T>>> {
+struct BFuncs<std::shared_ptr<T>, std::enable_if_t<std::is_base_of_v<BObject, T> || std::is_same_v<std::string, T>>> {
 	static inline void WriteTo(BBuffer& bb, std::shared_ptr<T> const& in) noexcept {
 		bb.WritePtr(in);
 	}
@@ -362,12 +395,27 @@ struct BFunc<std::shared_ptr<T>, std::enable_if_t<std::is_base_of_v<BItem, T> ||
 	}
 };
 
-template<typename T>
-void BBuffer::Write(T const& v) noexcept {
-	BFunc<T>::WriteTo(*this, v);
+template<typename ...TS>
+void BBuffer::Write(TS const& ...vs) noexcept
+{
+	std::initializer_list<int> n{ (BFuncs<TS>::WriteTo(*this, vs), 0)... };
+}
+
+template<typename T, typename ...TS>
+int BBuffer::ReadCore(T& v, TS&...vs) noexcept
+{
+	if (auto r = BFuncs<T>::ReadFrom(*this, v)) return r;
+	return ReadCore(vs...);
 }
 
 template<typename T>
-int BBuffer::Read(T& v) noexcept {
-	return BFunc<T>::ReadFrom(*this, v);
+int BBuffer::ReadCore(T& v) noexcept
+{
+	return BFuncs<T>::ReadFrom(*this, v);
+}
+
+template<typename ...TS>
+int BBuffer::Read(TS&...vs) noexcept
+{
+	return ReadCore(vs...);
 }

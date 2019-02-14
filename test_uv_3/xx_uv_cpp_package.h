@@ -14,33 +14,6 @@
 #endif
 
 // 支持 4 字节长度包头
-struct BBuffer;
-struct BItem;
-struct UvLoopEx : UvLoop {
-	using UvLoop::UvLoop;
-
-	typedef std::shared_ptr<BItem> (*Creator)();
-	inline static std::array<Creator, 1 << (sizeof(uint16_t) * 8)> creators;
-
-	std::unordered_map<void*, uint32_t> ptrs;
-	std::unordered_map<uint32_t, std::shared_ptr<BItem>> idxs;
-	std::unordered_map<uint32_t, std::shared_ptr<std::string>> idxs1;
-
-	static void Register(uint16_t const& typeId, Creator c) noexcept {
-		creators[typeId] = c;
-	}
-
-	static std::shared_ptr<BItem> CreateByTypeId(uint16_t typeId) {
-		return creators[typeId] ? creators[typeId]() : std::shared_ptr<BItem>();
-	}
-};
-
-
-
-
-
-
-
 
 
 struct PackagePeer : UvTcpPeer {
