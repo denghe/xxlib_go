@@ -248,16 +248,13 @@ struct BBuffer : Buffer, BObject {
 
 // 适配 1 字节长度的 数值 或 float( 这些类型直接 memcpy )
 template<typename T>
-struct BFuncs<T, std::enable_if_t< (std::is_arithmetic_v<T> && sizeof(T) == 1) || (std::is_floating_point_v<T> && sizeof(T) == 4) >>
-{
-	static inline void WriteTo(BBuffer& bb, T const &in) noexcept
-	{
+struct BFuncs<T, std::enable_if_t< (std::is_arithmetic_v<T> && sizeof(T) == 1) || (std::is_floating_point_v<T> && sizeof(T) == 4) >> {
+	static inline void WriteTo(BBuffer& bb, T const &in) noexcept {
 		bb.Reserve(bb.len + sizeof(T));
 		memcpy(bb.buf + bb.len, &in, sizeof(T));
 		bb.len += sizeof(T);
 	}
-	static inline int ReadFrom(BBuffer& bb, T &out) noexcept
-	{
+	static inline int ReadFrom(BBuffer& bb, T &out) noexcept {
 		if (bb.offset + sizeof(T) > bb.len) return -1;
 		memcpy(&out, bb.buf + bb.offset, sizeof(T));
 		bb.offset += sizeof(T);
@@ -267,8 +264,7 @@ struct BFuncs<T, std::enable_if_t< (std::is_arithmetic_v<T> && sizeof(T) == 1) |
 
 // 适配 2+ 字节整数( 变长读写 )
 template<typename T>
-struct BFuncs<T, std::enable_if_t<std::is_integral_v<T> && sizeof(T) >= 2>>
-{
+struct BFuncs<T, std::enable_if_t<std::is_integral_v<T> && sizeof(T) >= 2>> {
 	static inline void WriteTo(BBuffer& bb, T const &in) noexcept {
 		bb.WriteVarIntger(in);
 	}
@@ -279,8 +275,7 @@ struct BFuncs<T, std::enable_if_t<std::is_integral_v<T> && sizeof(T) >= 2>>
 
 // 适配 enum( 根据原始数据类型调上面的适配 )
 template<typename T>
-struct BFuncs<T, std::enable_if_t<std::is_enum_v<T>>>
-{
+struct BFuncs<T, std::enable_if_t<std::is_enum_v<T>>> {
 	typedef std::underlying_type_t<T> UT;
 	static inline void WriteTo(BBuffer& bb, T const &in) noexcept {
 		BFuncs<UT>::WriteTo(bb, (UT const&)in);
@@ -292,48 +287,37 @@ struct BFuncs<T, std::enable_if_t<std::is_enum_v<T>>>
 
 // 适配 double
 template<>
-struct BFuncs<double, void>
-{
-	static inline void WriteTo(BBuffer& bb, double const &in) noexcept
-	{
+struct BFuncs<double, void> {
+	static inline void WriteTo(BBuffer& bb, double const &in) noexcept {
 		bb.Reserve(bb.len + sizeof(double) + 1);
-		if (in == 0)
-		{
+		if (in == 0) {
 			bb.buf[bb.len++] = 0;
 		}
-		else if (std::isnan(in))
-		{
+		else if (std::isnan(in)) {
 			bb.buf[bb.len++] = 1;
 		}
-		else if (in == -std::numeric_limits<double>::infinity())	// negative infinity
-		{
+		else if (in == -std::numeric_limits<double>::infinity()) {	// negative infinity
 			bb.buf[bb.len++] = 2;
 		}
-		else if (in == std::numeric_limits<double>::infinity())		// positive infinity
-		{
+		else if (in == std::numeric_limits<double>::infinity()) {	// positive infinity
 			bb.buf[bb.len++] = 3;
 		}
-		else
-		{
+		else {
 			auto i = (int32_t)in;
-			if (in == (double)i)
-			{
+			if (in == (double)i) {
 				bb.buf[bb.len++] = 4;
 				BFuncs<int32_t>::WriteTo(bb, i);
 			}
-			else
-			{
+			else {
 				bb.buf[bb.len] = 5;
 				memcpy(bb.buf + bb.len + 1, &in, sizeof(double));
 				bb.len += sizeof(double) + 1;
 			}
 		}
 	}
-	static inline int ReadFrom(BBuffer& bb, double &out) noexcept
-	{
+	static inline int ReadFrom(BBuffer& bb, double &out) noexcept {
 		if (bb.offset >= bb.len) return -1;		// 确保还有 1 字节可读
-		switch (bb.buf[bb.offset++])					// 跳过 1 字节
-		{
+		switch (bb.buf[bb.offset++]) {			// 跳过 1 字节
 		case 0:
 			out = 0;
 			return 0;
@@ -346,22 +330,20 @@ struct BFuncs<double, void>
 		case 3:
 			out = std::numeric_limits<double>::infinity();
 			return 0;
-		case 4:
-		{
+		case 4: {
 			int32_t i = 0;
 			if (auto rtv = BFuncs<int32_t>::ReadFrom(bb, i)) return rtv;
 			out = i;
 			return 0;
 		}
-		case 5:
-		{
+		case 5: {
 			if (bb.len < bb.offset + sizeof(double)) return -1;
 			memcpy(&out, bb.buf + bb.offset, sizeof(double));
 			bb.offset += sizeof(double);
 			return 0;
 		}
 		default:
-			return -2;								// failed
+			return -2;							// failed
 		}
 	}
 };
@@ -396,26 +378,22 @@ struct BFuncs<std::shared_ptr<T>, std::enable_if_t<std::is_base_of_v<BObject, T>
 };
 
 template<typename ...TS>
-void BBuffer::Write(TS const& ...vs) noexcept
-{
+void BBuffer::Write(TS const& ...vs) noexcept {
 	std::initializer_list<int> n{ (BFuncs<TS>::WriteTo(*this, vs), 0)... };
 }
 
 template<typename T, typename ...TS>
-int BBuffer::ReadCore(T& v, TS&...vs) noexcept
-{
+int BBuffer::ReadCore(T& v, TS&...vs) noexcept {
 	if (auto r = BFuncs<T>::ReadFrom(*this, v)) return r;
 	return ReadCore(vs...);
 }
 
 template<typename T>
-int BBuffer::ReadCore(T& v) noexcept
-{
+int BBuffer::ReadCore(T& v) noexcept {
 	return BFuncs<T>::ReadFrom(*this, v);
 }
 
 template<typename ...TS>
-int BBuffer::Read(TS&...vs) noexcept
-{
+int BBuffer::Read(TS&...vs) noexcept {
 	return ReadCore(vs...);
 }
