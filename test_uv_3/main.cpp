@@ -29,7 +29,9 @@ struct Node : BObject {
 	Pos pos;
 	int age = 0;
 
-	inline virtual uint16_t GetTypeId() const noexcept override { return 3; }
+	inline virtual uint16_t GetTypeId() const noexcept override { 
+		return 3;
+	}
 	inline virtual void ToBBuffer(BBuffer& bb) const noexcept override {
 		bb.Write(this->parent, this->name, this->pos, this->age);
 	}
@@ -40,6 +42,7 @@ struct Node : BObject {
 
 int main() {
 	BBuffer bb;
+	BBuffer::Register(3, []()->std::shared_ptr<BObject> { return std::make_shared<Node>(); });
 
 	auto node = std::make_shared<Node>();
 	node->parent = node;
@@ -49,6 +52,13 @@ int main() {
 
 	bb.WriteRoot(node);
 	std::cout << bb.ToString() << std::endl;
+
+	std::shared_ptr<BObject> n2;
+	int r = bb.ReadRoot(n2);
+	assert(!r);
+	auto node2 = std::dynamic_pointer_cast<Node>(n2);
+	assert(node2);
+	std::cout << node2->age << " " << node2->pos.x << " " << node2->pos.y << " " << &*node2 << " " << &*node2->parent;
 
 	return 0;
 }

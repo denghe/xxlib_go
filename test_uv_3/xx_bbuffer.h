@@ -127,12 +127,12 @@ struct BBuffer : Buffer, BObject {
 		if (auto r = Read(typeId)) return r;
 		if (typeId == 0) return 0;
 		if constexpr (std::is_same_v<std::string, T>) {
-			if (typeId != 1) return -2;
+			if (typeId != 1) return -1;
 		}
 		else if constexpr (std::is_base_of_v<BObject, T>) {
 			if (typeId < 2) return -2;
 		}
-		if (typeId > 2 && !creators[typeId]) return -1;
+		if (typeId > 2 && !creators[typeId]) return -3;		// forget Register?
 
 		auto offs = offset - offsetRoot;
 		uint32_t ptrOffset;
@@ -146,7 +146,7 @@ struct BBuffer : Buffer, BObject {
 			else {
 				auto o = CreateByTypeId(typeId);
 				v = std::dynamic_pointer_cast<T>(o);
-				if (!v) return -3;
+				if (!v) return -4;
 				idxs[ptrOffset] = o;
 				if (auto r = o->FromBBuffer(*this)) return r;
 			}
@@ -154,15 +154,15 @@ struct BBuffer : Buffer, BObject {
 		else {
 			if constexpr (std::is_same_v<std::string, T>) {
 				auto iter = idxs1.find(ptrOffset);
-				if (iter == idxs1.end()) return -4;
+				if (iter == idxs1.end()) return -5;
 				v = iter->second;
 			}
 			else {
 				auto iter = idxs.find(ptrOffset);
-				if (iter == idxs.end()) return -5;
-				if (iter->second->GetTypeId() != typeId) return -6;
+				if (iter == idxs.end()) return -6;
+				if (iter->second->GetTypeId() != typeId) return -7;
 				v = std::dynamic_pointer_cast<T>(iter->second);
-				if (!v) return -7;
+				if (!v) return -8;
 			}
 		}
 		return 0;
@@ -171,7 +171,7 @@ struct BBuffer : Buffer, BObject {
 
 	template<typename SIn, typename UOut = std::make_unsigned_t<SIn>>
 	inline static UOut ZigZagEncode(SIn const& in) noexcept {
-		return (in << 1) ^ (in >> (sizeof(SIn) - 1));
+		return (in << 1) ^ (in >> (sizeof(SIn) * 8 - 1));
 	}
 
 	template<typename UIn, typename SOut = std::make_signed_t<UIn>>
@@ -197,17 +197,20 @@ struct BBuffer : Buffer, BObject {
 	inline int ReadVarInteger(T& v) {
 		std::make_unsigned_t<T> u(0);
 		for (int shift = 0; shift < sizeof(T) * 8; shift += 7) {
-			if (offset == len) return -1;
+			if (offset == len) return -9;
 			auto b = buf[offset++];
 			u |= (b & 0x7Fu) << shift;
 			if ((b & 0x80) == 0) {
 				if constexpr (std::is_signed_v<T>) {
 					v = ZigZagDecode(u);
 				}
+				else {
+					v = u;
+				}
 				return 0;
 			}
 		}
-		return -2;
+		return -10;
 	}
 
 
@@ -225,7 +228,7 @@ struct BBuffer : Buffer, BObject {
 		assert(this != &bb);
 		uint32_t dataLen = 0;
 		if (auto r = bb.Read(dataLen)) return r;
-		if (bb.offset + dataLen > bb.len) return -1;
+		if (bb.offset + dataLen > bb.len) return -11;
 		Clear();
 		Append(bb.buf + bb.offset, dataLen);
 		bb.offset += dataLen;
@@ -255,7 +258,7 @@ struct BFuncs<T, std::enable_if_t< (std::is_arithmetic_v<T> && sizeof(T) == 1) |
 		bb.len += sizeof(T);
 	}
 	static inline int ReadFrom(BBuffer& bb, T &out) noexcept {
-		if (bb.offset + sizeof(T) > bb.len) return -1;
+		if (bb.offset + sizeof(T) > bb.len) return -12;
 		memcpy(&out, bb.buf + bb.offset, sizeof(T));
 		bb.offset += sizeof(T);
 		return 0;
@@ -278,10 +281,10 @@ template<typename T>
 struct BFuncs<T, std::enable_if_t<std::is_enum_v<T>>> {
 	typedef std::underlying_type_t<T> UT;
 	static inline void WriteTo(BBuffer& bb, T const &in) noexcept {
-		BFuncs<UT>::WriteTo(bb, (UT const&)in);
+		bb.Write((UT const&)in);
 	}
 	static inline int ReadFrom(BBuffer& bb, T &out) noexcept {
-		return BFuncs<UT>::ReadFrom(bb, (UT&)out);
+		return bb.Read((UT&)out);
 	}
 };
 
@@ -306,7 +309,7 @@ struct BFuncs<double, void> {
 			auto i = (int32_t)in;
 			if (in == (double)i) {
 				bb.buf[bb.len++] = 4;
-				BFuncs<int32_t>::WriteTo(bb, i);
+				bb.WriteVarIntger(i);
 			}
 			else {
 				bb.buf[bb.len] = 5;
@@ -316,7 +319,7 @@ struct BFuncs<double, void> {
 		}
 	}
 	static inline int ReadFrom(BBuffer& bb, double &out) noexcept {
-		if (bb.offset >= bb.len) return -1;		// 确保还有 1 字节可读
+		if (bb.offset >= bb.len) return -13;	// 确保还有 1 字节可读
 		switch (bb.buf[bb.offset++]) {			// 跳过 1 字节
 		case 0:
 			out = 0;
@@ -337,13 +340,13 @@ struct BFuncs<double, void> {
 			return 0;
 		}
 		case 5: {
-			if (bb.len < bb.offset + sizeof(double)) return -1;
+			if (bb.len < bb.offset + sizeof(double)) return -14;
 			memcpy(&out, bb.buf + bb.offset, sizeof(double));
 			bb.offset += sizeof(double);
 			return 0;
 		}
 		default:
-			return -2;							// failed
+			return -15;							// failed
 		}
 	}
 };
@@ -358,8 +361,8 @@ struct BFuncs<std::string, void> {
 	static inline int ReadFrom(BBuffer& bb, std::string& out) noexcept {
 		uint32_t len = 0;
 		if (auto r = bb.Read(len)) return r;
-		if (bb.readLengthLimit && bb.readLengthLimit < len) return -1;
-		if (bb.offset + len > bb.len) return -2;
+		if (bb.readLengthLimit && bb.readLengthLimit < len) return -16;
+		if (bb.offset + len > bb.len) return -17;
 		out.assign((char*)bb.buf + bb.offset, len);
 		bb.offset += len;
 		return 0;
