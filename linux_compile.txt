@@ -1,0 +1,12 @@
+libuv, xxlib_go 两个 git 项目目录在一起
+
+libuv:
+
+./gyp_uv.py -f make
+BUILDTYPE=Release make -C out
+
+xxlib_go test uv:
+进入到 2 级项目目录后:
+g++ main.cpp -o client -luv -L../../libuv/out/Release -O2 -I../../libuv/include -pthread
+
+
