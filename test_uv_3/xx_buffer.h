@@ -21,7 +21,7 @@ struct Buffer {
 	inline void Reserve(uint32_t const& cap) noexcept {
 		if (cap <= this->cap) return;
 		if (!this->cap) {
-			this->cap = 32000;
+			this->cap = 32700;
 		}
 		while (this->cap < cap) {
 			this->cap *= 2;

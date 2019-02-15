@@ -45,8 +45,9 @@ struct BBuffer : Buffer, BObject {
 	typedef std::shared_ptr<BObject>(*Creator)();
 	inline static std::array<Creator, 1 << (sizeof(uint16_t) * 8)> creators;
 
-	inline static void Register(uint16_t const& typeId, Creator c) noexcept {
-		creators[typeId] = c;
+	template<typename T, typename ENABLED = std::enable_if_t<std::is_base_of_v<BObject, T>>>
+	inline static void Register(uint16_t const& typeId) noexcept {
+		creators[typeId] = []()->std::shared_ptr<BObject> { return std::make_shared<T>(); };
 	}
 
 	inline static std::shared_ptr<BObject> CreateByTypeId(uint16_t typeId) {
@@ -369,7 +370,7 @@ struct BFuncs<std::string, void> {
 	}
 };
 
-//   ≈‰ std::shared_ptr<T> “‘ºÚªØ Write Read  È–¥
+//   ≈‰ std::shared_ptr<T>
 template<typename T>
 struct BFuncs<std::shared_ptr<T>, std::enable_if_t<std::is_base_of_v<BObject, T> || std::is_same_v<std::string, T>>> {
 	static inline void WriteTo(BBuffer& bb, std::shared_ptr<T> const& in) noexcept {
@@ -377,6 +378,48 @@ struct BFuncs<std::shared_ptr<T>, std::enable_if_t<std::is_base_of_v<BObject, T>
 	}
 	static inline int ReadFrom(BBuffer& bb, std::shared_ptr<T>& out) noexcept {
 		return bb.ReadPtr(out);
+	}
+};
+
+//   ≈‰ std::weak_ptr<T>
+template<typename T>
+struct BFuncs<std::weak_ptr<T>, std::enable_if_t<std::is_base_of_v<BObject, T> || std::is_same_v<std::string, T>>> {
+	static inline void WriteTo(BBuffer& bb, std::weak_ptr<T> const& in) noexcept {
+		if (auto ptr = in.lock()) {
+			bb.WritePtr(ptr);
+		}
+		else {
+			bb.Write((uint16_t)0);
+		}
+	}
+	static inline int ReadFrom(BBuffer& bb, std::weak_ptr<T>& out) noexcept {
+		std::shared_ptr<T> ptr;
+		if (int r = bb.ReadPtr(ptr)) return r;
+		out = ptr;
+		return 0;
+	}
+};
+
+//   ≈‰ std::vector<T>
+template<typename T>
+struct BFuncs<std::vector<T>, void> {
+	static inline void WriteTo(BBuffer& bb, std::vector<T> const& in) noexcept {
+		bb.Write((uint32_t)in.size());
+		for (decltype(auto) item : in) {
+			bb.Write(item);
+		}
+	}
+	static inline int ReadFrom(BBuffer& bb, std::vector<T>& out) noexcept {
+		uint32_t len = 0;
+		if (auto r = bb.Read(len)) return r;
+		if (bb.readLengthLimit && bb.readLengthLimit < len) return -18;
+		out.clear();
+		for (uint32_t i = 0; i < len; i++) {
+			T tmp;
+			if (auto r = bb.Read(tmp)) return r;
+			out.push_back(std::move(tmp));
+		}
+		return 0;
 	}
 };
 
