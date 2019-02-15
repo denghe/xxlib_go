@@ -2,7 +2,7 @@
 #include <chrono>
 #include <cassert>
 #include <iostream>
-#include <memory>
+#include <cstring>
 size_t counter = 0;
 
 int Send(uv_stream_t* const& stream, char const* const& buf, ssize_t const& dataLen) {
