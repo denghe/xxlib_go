@@ -1,5 +1,6 @@
 ﻿#include "uv.h"
 #include <cstdlib>
+#include <cstring>
 #include <cassert>
 int Send(uv_stream_t* const& stream, char const* const& buf, ssize_t const& dataLen) {
 	struct uv_write_t_ex : uv_write_t {
