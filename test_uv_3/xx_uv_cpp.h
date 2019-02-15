@@ -176,6 +176,12 @@ struct UvTcpClient : UvItem, std::enable_shared_from_this<UvTcpClient> {
 	UvTcpClient& operator=(UvTcpClient const&) = delete;
 
 	int Connect(std::string const& ip, int const& port, int const& timeoutMS = 0) noexcept {
+		struct uv_connect_t_ex : uv_connect_t {
+			std::shared_ptr<UvTcpPeer> peer;
+			std::weak_ptr<UvTcpClient> client;
+			int serial;
+		} *req = nullptr;
+
 		auto peer = OnCreatePeer();
 		if (peer->Init(&loop.uvLoop)) return -1;
 
@@ -187,12 +193,7 @@ struct UvTcpClient : UvItem, std::enable_shared_from_this<UvTcpClient> {
 			if (uv_ip6_addr(ip.c_str(), port, &addr)) goto LabEnd;
 		}
 
-		struct uv_connect_t_ex : uv_connect_t {
-			std::shared_ptr<UvTcpPeer> peer;
-			std::weak_ptr<UvTcpClient> client;
-			int serial;
-		};
-		auto req = new uv_connect_t_ex();
+		req = new uv_connect_t_ex();
 		req->peer = peer;
 		req->client = shared_from_this();
 		req->serial = ++serial;
