@@ -1,6 +1,8 @@
 ﻿#pragma once
 #include "uv.h"
 #include <stdint.h>
+#include <cstdlib>
+#include <cstring>
 #include <string>
 #include <memory>
 #include <cassert>

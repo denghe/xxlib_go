@@ -7,7 +7,7 @@
 // 支持收啥发啥的 peer
 
 struct EchoPeer : UvTcpPeer {
-	inline int Unpack(char const* const& buf, size_t const& len) noexcept override {
+	inline int Unpack(char const* const& buf, uint32_t const& len) noexcept override {
 		Send(buf, len);
 		return 0;
 	}
@@ -22,7 +22,7 @@ struct EchoListener : UvTcpListener {
 struct EchoClientPeer : UvTcpPeer {
 	std::chrono::time_point<std::chrono::system_clock> t = std::chrono::system_clock::now();
 	int count = 0;
-	inline int Unpack(char const* const& buf, size_t const& len) noexcept override {
+	inline int Unpack(char const* const& buf, uint32_t const& len) noexcept override {
 		Send(buf, len);
 		if (++count > 100000)
 		{
