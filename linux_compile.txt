@@ -2,6 +2,11 @@ libuv, xxlib_go 两个 git 项目目录在一起
 
 libuv:
 
+确保有 python
+
+创建 build 目录并进入，
+git clone https://chromium.googlesource.com/external/gyp
+
 ./gyp_uv.py -f make
 BUILDTYPE=Release make -C out
 
