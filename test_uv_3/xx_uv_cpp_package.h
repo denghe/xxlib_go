@@ -34,23 +34,23 @@ struct PackagePeer : UvTcpPeer {
 		buf.RemoveFront(offset);
 
 		if (recvs.empty()) return 0;
-		int r = OnRecv(*this);
+		int r = OnRecv();
 		recvs.clear();
 		return r;
 	}
 	Buffer buf = Buffer(65535);
 	std::vector<std::shared_ptr<Buffer>> recvs;
-	std::function<int(PackagePeer&)> OnRecv;
+	std::function<int()> OnRecv;
 };
 
 struct PackageListener : UvTcpListener {
 	inline virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept override {
 		return std::make_shared<PackagePeer>();
 	}
-	inline virtual void OnAccept(std::weak_ptr<UvTcpPeer> peer) noexcept override {
-		auto pp = std::static_pointer_cast<PackagePeer>(peer.lock());
-		pp->OnRecv = [](PackagePeer& pp) {
-			for (decltype(auto) buf : pp.recvs) {
+	inline virtual void OnAccept(std::shared_ptr<UvTcpPeer> peer) noexcept override {
+		auto pp = std::static_pointer_cast<PackagePeer>(peer);
+		pp->OnRecv = [pp] {
+			for (decltype(auto) buf : pp->recvs) {
 				// blah blah blah
 			}
 			return 0;
@@ -63,8 +63,8 @@ struct PackageClient : UvTcpClient {
 	inline virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept override {
 		return std::make_shared<PackagePeer>();
 	}
-	inline virtual void OnConnect(int const& serial, std::weak_ptr<UvTcpPeer> peer_) noexcept override {
-		if (auto peer = peer_.lock()) {
+	inline virtual void OnConnect(int const& serial, std::shared_ptr<UvTcpPeer> peer) noexcept override {
+		if (peer) {
 			peer->Send("a", 1);
 		}
 	}

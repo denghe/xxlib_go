@@ -5,6 +5,8 @@
 #include <cstring>
 #include <string>
 #include <memory>
+#include <unordered_map>
+#include <functional>
 #include <cassert>
 #include <vector>
 
@@ -17,24 +19,32 @@
   ((type *) ((char *) (ptr) - _offsetof(type, member)))
 #endif
 
-template<typename ContainerType>
-inline void SwapRemoveAt(ContainerType& items, int const& idx) {
-	assert(idx >= 0 && idx < items.size());
-	auto last = items.size() - 1;
-	if (idx < last) {
-		items[last]->indexAtContainer = idx;
-		items[idx] = std::move(items[last]);
-	}
-	items.pop_back();
-}
-
 struct UvItem {
 	int indexAtContainer = -1;
+	inline bool Disposed() {
+		return indexAtContainer == -1;
+	}
+	virtual void Dispose() noexcept = 0;
 };
 
 struct UvLoop {
 	uv_loop_t uvLoop;
 	std::vector<std::shared_ptr<UvItem>> items;
+	template<typename T>
+	inline void ItemsPushBack(T&& item) {
+		item->indexAtContainer = (int)items.size();
+		items.push_back(std::forward<T>(item));
+	}
+	inline void ItemsSwapRemoveAt(int const& idx) {
+		assert(idx >= 0 && idx < items.size());
+		items[idx]->indexAtContainer = -1;
+		auto last = items.size() - 1;
+		if (idx < last) {
+			items[last]->indexAtContainer = idx;
+			items[idx] = std::move(items[last]);
+		}
+		items.pop_back();
+	}
 
 	UvLoop() {
 		if (int r = uv_loop_init(&uvLoop)) throw r;
@@ -47,13 +57,20 @@ struct UvLoop {
 	}
 
 	template<typename ListenerType>
-	inline std::weak_ptr<ListenerType> CreateListener(std::string const& ip, int const& port, int const& backlog = 128) noexcept;
+	inline std::shared_ptr<ListenerType> CreateListener(std::string const& ip, int const& port, int const& backlog = 128) noexcept;
 
 	template<typename ClientType>
-	inline std::weak_ptr<ClientType> CreateClient() noexcept;
+	inline std::shared_ptr<ClientType> CreateClient() noexcept;
+
+	inline void Stop() noexcept {
+		if (items.size()) {
+			for (int i = (int)items.size() - 1; i >= 0; --i) {
+				items[i]->Dispose();
+			}
+		}
+	}
 
 	~UvLoop() {
-		items.clear();
 		int r = uv_loop_close(&uvLoop);
 		assert(!r);
 	}
@@ -65,12 +82,13 @@ struct UvTcp : UvItem {
 	inline int Init(uv_loop_t* const& loop) noexcept {
 		return uv_tcp_init(loop, &uvTcp);
 	}
-	inline virtual void Close(bool bySend = false) noexcept {
+	inline virtual void Dispose() noexcept override {
+		assert(!Disposed());
 		auto h = (uv_handle_t*)&uvTcp;
 		assert(!uv_is_closing(h));
 		uv_close(h, [](uv_handle_t* h) {
 			auto self = container_of(h, UvTcp, uvTcp);
-			SwapRemoveAt(container_of(self->uvTcp.loop, UvLoop, uvLoop)->items, self->indexAtContainer);
+			container_of(self->uvTcp.loop, UvLoop, uvLoop)->ItemsSwapRemoveAt(self->indexAtContainer);
 		});
 	}
 };
@@ -81,6 +99,7 @@ struct UvTcpPeer : UvTcp {
 	UvTcpPeer& operator=(UvTcpPeer const&) = delete;
 
 	inline void ReadStart() noexcept {
+		assert(!Disposed());
 		uv_read_start((uv_stream_t*)&uvTcp, [](uv_handle_t* h, size_t suggested_size, uv_buf_t* buf) {
 			buf->base = (char*)malloc(suggested_size);
 			buf->len = decltype(uv_buf_t::len)(suggested_size);
@@ -91,11 +110,12 @@ struct UvTcpPeer : UvTcp {
 			}
 			free(buf->base);
 			if (nread < 0) {
-				self->Close();
+				self->Dispose();
 			}
 		});
 	}
 	inline virtual int Send(char const* const& buf, ssize_t const& dataLen) noexcept {
+		assert(!Disposed());
 		struct uv_write_t_ex : uv_write_t {
 			uv_buf_t buf;
 		};
@@ -107,7 +127,7 @@ struct UvTcpPeer : UvTcp {
 		return uv_write(req, (uv_stream_t*)&uvTcp, &req->buf, 1, [](uv_write_t *req, int status) {
 			free(req);
 			if (status) {
-				container_of(req->handle, UvTcpPeer, uvTcp)->Close(true);
+				container_of(req->handle, UvTcpPeer, uvTcp)->Dispose();
 			}
 		});
 	}
@@ -120,15 +140,13 @@ struct UvTcpListener : UvTcp {
 	UvTcpListener& operator=(UvTcpListener const&) = delete;
 
 	virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept = 0;
-	inline virtual void OnAccept(std::weak_ptr<UvTcpPeer> peer) noexcept {};
+	inline virtual void OnAccept(std::shared_ptr<UvTcpPeer> peer) noexcept {};
 };
 
 template<typename ListenerType>
-inline std::weak_ptr<ListenerType> UvLoop::CreateListener(std::string const& ip, int const& port, int const& backlog) noexcept {
+inline std::shared_ptr<ListenerType> UvLoop::CreateListener(std::string const& ip, int const& port, int const& backlog) noexcept {
 	auto listener = std::make_shared<ListenerType>();
-	std::weak_ptr<ListenerType> rtv(listener);
-
-	if (listener->Init(&uvLoop)) return rtv;
+	if (listener->Init(&uvLoop)) return nullptr;
 
 	sockaddr_in6 addr;
 	if (ip.find(':') == std::string::npos) {								// ipv4
@@ -145,100 +163,102 @@ inline std::weak_ptr<ListenerType> UvLoop::CreateListener(std::string const& ip,
 		auto peer = self->OnCreatePeer();
 		if (!peer || peer->Init(server->loop)) return;
 
-		auto& items = container_of(server->loop, UvLoop, uvLoop)->items;
-		peer->indexAtContainer = (int)items.size();
-		items.push_back(peer);
+		container_of(server->loop, UvLoop, uvLoop)->ItemsPushBack(peer);
 
 		if (uv_accept(server, (uv_stream_t*)&peer->uvTcp)) {
-			peer->Close();
+			peer->Dispose();
 			return;
 		}
 		peer->ReadStart();
 		self->OnAccept(peer);
 	})) goto LabEnd;
 
-	listener->indexAtContainer = (int)items.size();
-	items.push_back(listener);
-	return rtv;
+	ItemsPushBack(listener);
+	return listener;
 LabEnd:
 	uv_close((uv_handle_t*)&listener->uvTcp, nullptr);
-	return rtv;
+	return listener;
 }
+
+struct UvTcpClient;
+struct uv_connect_t_ex : uv_connect_t {
+	std::shared_ptr<UvTcpPeer> peer;
+	std::shared_ptr<UvTcpClient> client;
+	int serial;
+};
 
 struct UvTcpClient : UvItem, std::enable_shared_from_this<UvTcpClient> {
 	UvLoop& loop;
 	int serial = 0;
-	// todo: map: serial, req
+	std::unordered_map<int, uv_connect_t_ex*> reqs;
 	// todo: Connect timeout support
 
 	UvTcpClient(UvLoop& loop) noexcept : loop(loop) {}
 	UvTcpClient(UvTcpClient const&) = delete;
 	UvTcpClient& operator=(UvTcpClient const&) = delete;
 
-	int Connect(std::string const& ip, int const& port, int const& timeoutMS = 0) noexcept {
-		struct uv_connect_t_ex : uv_connect_t {
-			std::shared_ptr<UvTcpPeer> peer;
-			std::weak_ptr<UvTcpClient> client;
-			int serial;
-		} *req = nullptr;
+	inline virtual void Dispose() noexcept override {
+		for (decltype(auto) kv : reqs) {
+			uv_cancel((uv_req_t*)kv.second);
+		}
+		reqs.clear();
+		loop.ItemsSwapRemoveAt(indexAtContainer);
+	}
+
+	inline int Connect(std::string const& ip, int const& port, int const& timeoutMS = 0) noexcept {
+		assert(!Disposed());
+		sockaddr_in6 addr;
+		if (ip.find(':') == std::string::npos) {								// ipv4
+			if (int r = uv_ip4_addr(ip.c_str(), port, (sockaddr_in*)&addr)) return r;
+		}
+		else {																	// ipv6
+			if (int r = uv_ip6_addr(ip.c_str(), port, &addr)) return r;
+		}
 
 		auto peer = OnCreatePeer();
 		if (peer->Init(&loop.uvLoop)) return -1;
 
-		sockaddr_in6 addr;
-		if (ip.find(':') == std::string::npos) {								// ipv4
-			if (uv_ip4_addr(ip.c_str(), port, (sockaddr_in*)&addr)) goto LabEnd;
-		}
-		else {																	// ipv6
-			if (uv_ip6_addr(ip.c_str(), port, &addr)) goto LabEnd;
-		}
-
-		req = new uv_connect_t_ex();
-		req->peer = peer;
+		auto req = new uv_connect_t_ex();
+		req->peer = std::move(peer);
 		req->client = shared_from_this();
 		req->serial = ++serial;
 
-		if (uv_tcp_connect(req, &peer->uvTcp, (sockaddr*)&addr, [](uv_connect_t* req_, int status) {
-			auto req = (uv_connect_t_ex*)req_;
-			auto peer = std::move(req->peer);
-			auto client = req->client.lock();
-			auto serial = req->serial;
-			delete req;
-
-			if (!client) {														// client is disposed
-				uv_close((uv_handle_t*)&peer->uvTcp, nullptr);
-				return;
-			}
+		if (uv_tcp_connect(req, &req->peer->uvTcp, (sockaddr*)&addr, [](uv_connect_t* req_, int status) {
+			auto req = std::unique_ptr<uv_connect_t_ex, std::function<void(uv_connect_t_ex *)>>((uv_connect_t_ex*)req_, [](uv_connect_t_ex * req) {
+				if (req->peer) {
+					uv_close((uv_handle_t*)&req->peer->uvTcp, nullptr);
+				}
+				req->client->reqs.erase(req->serial);
+				delete req;
+			});
+			if (status == -4081) return;										// canceled
+			if (req->client->Disposed()) return;
 			if (status) {
-				uv_close((uv_handle_t*)&peer->uvTcp, nullptr);
-				client->OnConnect(serial, std::weak_ptr<UvTcpPeer>());			// connect failed.
+				req->client->OnConnect(req->serial, nullptr);					// connect failed.
 				return;
 			}
-
-			auto& items = client->loop.items;
-			peer->indexAtContainer = (int)items.size();
-			items.push_back(peer);
-
+			auto peer = std::move(req->peer);									// protect
+			req->client->loop.ItemsPushBack(peer);
 			peer->ReadStart();
-			client->OnConnect(serial, peer);									// connect success
-		})) goto LabEnd;
-
-		return serial;	// todo: insert to dict & return serial key
-
-	LabEnd:
-		uv_close((uv_handle_t*)&peer->uvTcp, nullptr);
-		return -1;
+			req->client->OnConnect(req->serial, peer);							// connect success
+		})) {
+			uv_close((uv_handle_t*)&req->peer->uvTcp, nullptr);
+			delete req;
+			return -1;
+		}
+		else {
+			reqs[serial] = req;
+			return serial;
+		}
 	}
 
 	virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept = 0;
-	inline virtual void OnConnect(int const& serial, std::weak_ptr<UvTcpPeer> peer) noexcept {};
+	inline virtual void OnConnect(int const& serial, std::shared_ptr<UvTcpPeer> peer) noexcept {};
 };
 
 template<typename ClientType>
-inline std::weak_ptr<ClientType> UvLoop::CreateClient() noexcept {
+inline std::shared_ptr<ClientType> UvLoop::CreateClient() noexcept {
 	auto client = std::make_shared<ClientType>(*this);
-	std::weak_ptr<ClientType> rtv(client);
-	client->indexAtContainer = (int)items.size();
-	items.push_back(client);
-	return rtv;
+	ItemsPushBack(client);
+	return client;
 }

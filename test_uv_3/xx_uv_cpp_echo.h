@@ -8,8 +8,7 @@
 
 struct EchoPeer : UvTcpPeer {
 	inline int Unpack(char const* const& buf, uint32_t const& len) noexcept override {
-		Send(buf, len);
-		return 0;
+		return Send(buf, len);
 	}
 };
 
@@ -23,13 +22,11 @@ struct EchoClientPeer : UvTcpPeer {
 	std::chrono::time_point<std::chrono::system_clock> t = std::chrono::system_clock::now();
 	int count = 0;
 	inline int Unpack(char const* const& buf, uint32_t const& len) noexcept override {
-		Send(buf, len);
-		if (++count > 100000)
-		{
+		if (++count > 100000) {
 			std::cout << double(std::chrono::nanoseconds(std::chrono::system_clock::now() - t).count()) / 1000000000 << std::endl;
 			return -1;
 		}
-		return 0;
+		return Send(buf, len);
 	}
 };
 
@@ -38,8 +35,8 @@ struct EchoClient : UvTcpClient {
 	inline virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept override {
 		return std::make_shared<EchoClientPeer>();
 	}
-	inline virtual void OnConnect(int const& serial, std::weak_ptr<UvTcpPeer> peer_) noexcept override {
-		if (auto peer = peer_.lock()) {
+	inline virtual void OnConnect(int const& serial, std::shared_ptr<UvTcpPeer> peer) noexcept override {
+		if (peer) {
 			peer->Send("a", 1);
 		}
 	}
@@ -55,7 +52,7 @@ void TestEcho() {
 	std::thread t2([] {
 		UvLoop uvloop;
 		auto client = uvloop.CreateClient<EchoClient>();
-		client.lock()->Connect("127.0.0.1", 12345);
+		client->Connect("127.0.0.1", 12345);
 		uvloop.Run();
 		std::cout << "client end.";
 	});
