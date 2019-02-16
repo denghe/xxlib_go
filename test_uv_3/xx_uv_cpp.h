@@ -111,7 +111,7 @@ struct UvTcpPeer : UvTcp {
 			}
 		});
 	}
-	inline virtual int Unpack(char const* const& buf, uint32_t const& len) noexcept = 0;
+	virtual int Unpack(char const* const& buf, uint32_t const& len) noexcept = 0;
 };
 
 struct UvTcpListener : UvTcp {
@@ -119,7 +119,7 @@ struct UvTcpListener : UvTcp {
 	UvTcpListener(UvTcpListener const&) = delete;
 	UvTcpListener& operator=(UvTcpListener const&) = delete;
 
-	inline virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept = 0;
+	virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept = 0;
 	inline virtual void OnAccept(std::weak_ptr<UvTcpPeer> peer) noexcept {};
 };
 
@@ -230,7 +230,7 @@ struct UvTcpClient : UvItem, std::enable_shared_from_this<UvTcpClient> {
 		return -1;
 	}
 
-	inline virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept = 0;
+	virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept = 0;
 	inline virtual void OnConnect(int const& serial, std::weak_ptr<UvTcpPeer> peer) noexcept {};
 };
 
