@@ -38,7 +38,7 @@ struct PackagePeer : UvTcpPeer {
 		recvs.clear();
 		return r;
 	}
-	Buffer buf = Buffer(65535);
+	Buffer buf;
 	std::vector<std::shared_ptr<Buffer>> recvs;
 	std::function<int()> OnRecv;
 };

@@ -27,6 +27,8 @@ struct UvItem {
 	virtual void Dispose() noexcept = 0;
 };
 
+struct UvTimer;
+
 struct UvLoop {
 	uv_loop_t uvLoop;
 	std::vector<std::shared_ptr<UvItem>> items;
@@ -57,10 +59,12 @@ struct UvLoop {
 	}
 
 	template<typename ListenerType>
-	inline std::shared_ptr<ListenerType> CreateListener(std::string const& ip, int const& port, int const& backlog = 128) noexcept;
+	std::shared_ptr<ListenerType> CreateListener(std::string const& ip, int const& port, int const& backlog = 128) noexcept;
 
 	template<typename ClientType>
-	inline std::shared_ptr<ClientType> CreateClient() noexcept;
+	std::shared_ptr<ClientType> CreateClient() noexcept;
+
+	std::shared_ptr<UvTimer> CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire) noexcept;
 
 	inline void Stop() noexcept {
 		if (items.size()) {
@@ -73,6 +77,41 @@ struct UvLoop {
 	~UvLoop() {
 		int r = uv_loop_close(&uvLoop);
 		assert(!r);
+	}
+};
+
+// todo: async
+struct UvTimer : UvItem {
+	uv_timer_t uvTimer;
+	std::function<void()> OnFire;
+	inline int Init(uv_loop_t* const& loop) noexcept {
+		return uv_timer_init(loop, &uvTimer);
+	}
+	inline virtual void Dispose() noexcept override {
+		assert(!Disposed());
+		auto h = (uv_handle_t*)&uvTimer;
+		assert(!uv_is_closing(h));
+		uv_close(h, [](uv_handle_t* h) {
+			auto self = container_of(h, UvTimer, uvTimer);
+			container_of(self->uvTimer.loop, UvLoop, uvLoop)->ItemsSwapRemoveAt(self->indexAtContainer);
+		});
+	}
+	inline int Start(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS) {
+		assert(!Disposed());
+		return uv_timer_start(&uvTimer, [](uv_timer_t* t) {
+			auto self = container_of(t, UvTimer, uvTimer);
+			if (self->OnFire) {
+				self->OnFire();
+			}
+		}, timeoutMS, repeatIntervalMS);
+	}
+	inline int Stop() {
+		assert(!Disposed());
+		return uv_timer_stop(&uvTimer);
+	}
+	inline int Again() {
+		assert(!Disposed());
+		return uv_timer_again(&uvTimer);
 	}
 };
 
@@ -187,6 +226,8 @@ struct uv_connect_t_ex : uv_connect_t {
 	int serial;
 };
 
+// todo: req 作为 Connect 返回值?
+
 struct UvTcpClient : UvItem, std::enable_shared_from_this<UvTcpClient> {
 	UvLoop& loop;
 	int serial = 0;
@@ -203,6 +244,15 @@ struct UvTcpClient : UvItem, std::enable_shared_from_this<UvTcpClient> {
 		}
 		reqs.clear();
 		loop.ItemsSwapRemoveAt(indexAtContainer);
+	}
+
+	inline int Cancel(int const& serial) noexcept {
+		assert(!Disposed());
+		auto iter = reqs.find(serial);
+		if (iter != reqs.end()) {
+			return uv_cancel((uv_req_t*)iter->second);
+		}
+		return 0;
 	}
 
 	inline int Connect(std::string const& ip, int const& port, int const& timeoutMS = 0) noexcept {
@@ -261,4 +311,16 @@ inline std::shared_ptr<ClientType> UvLoop::CreateClient() noexcept {
 	auto client = std::make_shared<ClientType>(*this);
 	ItemsPushBack(client);
 	return client;
+}
+
+inline std::shared_ptr<UvTimer> UvLoop::CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire) noexcept {
+	auto timer = std::make_shared<UvTimer>();
+	if (timer->Init(&uvLoop)) return nullptr;
+	ItemsPushBack(timer);
+	timer->OnFire = std::move(onFire);
+	if (timer->Start(timeoutMS, repeatIntervalMS)) {
+		timer->Dispose();
+		return nullptr;
+	}
+	return timer;
 }

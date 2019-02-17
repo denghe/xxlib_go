@@ -23,7 +23,7 @@ struct Coroutines {
 			for (decltype(auto) i = cors.size() - 1; i != (size_t)-1; --i) {
 				cors[i]();
 				if (!cors[i]) {
-					cors.pop_back();
+					//cors.pop_back(); todo: swap remove
 				}
 			}
 			std::this_thread::sleep_for(std::chrono::nanoseconds(1));

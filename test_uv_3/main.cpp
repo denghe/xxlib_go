@@ -1,12 +1,69 @@
 ﻿#include "xx_uv_cpp.h"
-#include "xx_uv_cpp_echo.h"
-#include "xx_uv_cpp_package.h"
+#include <boost/coroutine2/all.hpp>
+#include <iostream>
+
+using Coroutine = boost::coroutines2::coroutine<void>::pull_type;
+using CoroutineFunc = boost::coroutines2::coroutine<void>::push_type;
+
+void TestCor1(Coroutine& yield) {
+	for (size_t i = 0; i < 100; i++) {
+		std::cout << i;
+		yield();
+	}
+}
+
+struct Coroutines {
+	std::vector<CoroutineFunc> cors;
+	inline void Add(CoroutineFunc&& cf) {
+		cf();
+		if (cf) {
+			cors.push_back(std::move(cf));
+		}
+	}
+	inline void RunAdd(CoroutineFunc&& cf) {
+		cors.push_back(std::move(cf));
+	}
+	inline void RemoveAt(size_t const& idx) {
+		if (idx + 1 < cors.size()) {
+			cors[idx] = std::move(cors[cors.size() - 1]);
+		}
+		cors.pop_back();
+	}
+	void RunOnce() {
+		if (cors.size()) {
+			for (decltype(auto) i = cors.size() - 1; i != (size_t)-1; --i) {
+				decltype(auto) cor = cors[i];
+				if (cor) {
+					cor();
+				}
+				else {
+					RemoveAt(i);
+				}
+			}
+		}
+	}
+};
 
 int main() {
-
-	TestEcho();
+	UvLoop loop;
+	Coroutines cs;
+	cs.Add(CoroutineFunc(TestCor1));
+	cs.Add(CoroutineFunc(TestCor1));
+	cs.RunOnce();
+	auto timer = loop.CreateTimer(0, 1000 / 61, [&] { cs.RunOnce(); });
+	loop.Run();
 	return 0;
 }
+
+
+//#include "xx_uv_cpp.h"
+//#include "xx_uv_cpp_echo.h"
+//#include "xx_uv_cpp_package.h"
+//
+//int main() {
+//	TestEcho();
+//	return 0;
+//}
 //
 ////struct Pos {
 ////	double x = 0, y = 0;
