@@ -18,12 +18,18 @@ struct Coroutines {
 	inline void Add(CoroutineFunc&& cf) {
 		cors.push_back(std::move(cf));
 	}
+	inline void RemoveAt(size_t const& idx) {
+		if (idx + 1 < cors.size()) {
+			cors[idx] = std::move(cors[cors.size() - 1]);
+		}
+		cors.pop_back();
+	}
 	void Run() {
 		while (cors.size()) {
 			for (decltype(auto) i = cors.size() - 1; i != (size_t)-1; --i) {
 				cors[i]();
 				if (!cors[i]) {
-					//cors.pop_back(); todo: swap remove
+					RemoveAt(i);
 				}
 			}
 			std::this_thread::sleep_for(std::chrono::nanoseconds(1));
