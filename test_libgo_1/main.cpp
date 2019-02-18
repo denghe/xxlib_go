@@ -21,6 +21,7 @@ int main()
 		for (int i = 0; i < 10000; ++i) {
 			std::this_thread::sleep_for(std::chrono::seconds(1));
 			std::cout << ".";
+			//co_yield;
 		}
 	};
 	co_sched.Start();

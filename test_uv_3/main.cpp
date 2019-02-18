@@ -3,23 +3,82 @@
 #include <iostream>
 #include <chrono>
 
-void TestCor1(Yield& yield, int const& count) {
-	for (int i = 0; i < count; i++) {
-		Sleep(yield, std::chrono::system_clock::now() + std::chrono::seconds(1));
-		std::cout << i;
+struct TcpPeer : UvTcpPeer {
+	inline int Unpack(char const* const& buf, uint32_t const& len) noexcept override {
+		std::cout << "recv " << buf[0] << std::endl;
+		return -1;	// 断开
 	}
-}
+};
+struct TcpClient : UvTcpClient {
+	using UvTcpClient::UvTcpClient;
+	inline virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept override {
+		return std::make_shared<TcpPeer>();
+	}
+};
 
 int main() {
 	UvLoop loop;
-	Coroutines cs;
-	cs.Add(Coroutine([](Yield& yield) { TestCor1(yield, 10); }));
-	cs.Add(Coroutine([](Yield& yield) { TestCor1(yield, 5); }));
-	cs.Add(Coroutine([](Yield& yield) { TestCor1(yield, 15); }));
-	auto timer = loop.CreateTimer(0, 1000 / 61, [&] { cs.RunOnce(); });
+	Coroutines cors;
+	cors.Add(Coroutine([&](Yield& yield) {
+		auto client = loop.CreateClient<TcpClient>();
+	LabConnect:
+		std::cout << "connecting...\n";
+		client->Cleanup();
+		client->Connect("127.0.0.1", 12345);
+		auto t = std::chrono::system_clock::now() + std::chrono::seconds(5);
+		while (!client->peer) {
+			yield();
+			if (std::chrono::system_clock::now() > t) {		// timeout check
+				std::cout << "timeout. retry\n";
+				goto LabConnect;
+			}
+		}
+		std::cout << "connected. send 'a'\n";
+		client->peer->Send("a", 1);
+		while (!client->peer->Disposed()) {		// wait echo
+			yield();
+		}
+		goto LabConnect;	// retry
+	}));
+
+	auto timer = loop.CreateTimer(0, 1000 / 61);
+	timer->OnFire = [&] { 
+		if (!cors.RunOnce()) {
+			timer->Dispose();
+		};
+	};
 	loop.Run();
+
+	std::cout << "end.\n";
+	std::cin.get();
+
 	return 0;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 //#include "xx_uv_cpp.h"

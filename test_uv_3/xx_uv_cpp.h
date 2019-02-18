@@ -224,15 +224,15 @@ struct uv_connect_t_ex : uv_connect_t {
 	std::shared_ptr<UvTcpPeer> peer;
 	std::shared_ptr<UvTcpClient> client;
 	int serial;
+	int batchNumber;
 };
-
-// todo: req 作为 Connect 返回值?
 
 struct UvTcpClient : UvItem, std::enable_shared_from_this<UvTcpClient> {
 	UvLoop& loop;
 	int serial = 0;
 	std::unordered_map<int, uv_connect_t_ex*> reqs;
-	// todo: Connect timeout support
+	int batchNumber = 0;
+	std::shared_ptr<UvTcpPeer> peer;
 
 	UvTcpClient(UvLoop& loop) noexcept : loop(loop) {}
 	UvTcpClient(UvTcpClient const&) = delete;
@@ -255,8 +255,13 @@ struct UvTcpClient : UvItem, std::enable_shared_from_this<UvTcpClient> {
 		return 0;
 	}
 
-	inline int Connect(std::string const& ip, int const& port, int const& timeoutMS = 0) noexcept {
+	// return errNum or serial
+	inline int Connect(std::string const& ip, int const& port, bool cleanup = true) noexcept {
 		assert(!Disposed());
+		if (cleanup) {
+			Cleanup();
+		}
+
 		sockaddr_in6 addr;
 		if (ip.find(':') == std::string::npos) {								// ipv4
 			if (int r = uv_ip4_addr(ip.c_str(), port, (sockaddr_in*)&addr)) return r;
@@ -272,6 +277,7 @@ struct UvTcpClient : UvItem, std::enable_shared_from_this<UvTcpClient> {
 		req->peer = std::move(peer);
 		req->client = shared_from_this();
 		req->serial = ++serial;
+		req->batchNumber = batchNumber;
 
 		if (uv_tcp_connect(req, &req->peer->uvTcp, (sockaddr*)&addr, [](uv_connect_t* req_, int status) {
 			auto req = std::unique_ptr<uv_connect_t_ex, std::function<void(uv_connect_t_ex *)>>((uv_connect_t_ex*)req_, [](uv_connect_t_ex * req) {
@@ -281,16 +287,16 @@ struct UvTcpClient : UvItem, std::enable_shared_from_this<UvTcpClient> {
 				req->client->reqs.erase(req->serial);
 				delete req;
 			});
-			if (status == -4081) return;										// canceled
 			if (req->client->Disposed()) return;
-			if (status) {
-				req->client->OnConnect(req->serial, nullptr);					// connect failed.
-				return;
-			}
-			auto peer = std::move(req->peer);									// protect
+			if (status) return;													// error or -4081 canceled
+
+			auto peer = std::move(req->peer);									// skip uv_close
 			req->client->loop.ItemsPushBack(peer);
 			peer->ReadStart();
-			req->client->OnConnect(req->serial, peer);							// connect success
+			if (req->client->batchNumber == req->batchNumber && !req->client->peer) {
+				req->client->peer = peer;
+				req->client->OnConnect(std::move(peer));						// connect success
+			}
 		})) {
 			uv_close((uv_handle_t*)&req->peer->uvTcp, nullptr);
 			delete req;
@@ -302,8 +308,31 @@ struct UvTcpClient : UvItem, std::enable_shared_from_this<UvTcpClient> {
 		}
 	}
 
+	inline void Cleanup() {
+		if (peer) {
+			if (!peer->Disposed()) {
+				peer->Dispose();
+			}
+			peer.reset();
+		}
+		++batchNumber;
+	}
+
+	inline int BatchConnect(std::vector<std::string> const& ips, int const& port) noexcept {
+		Cleanup();
+		for (decltype(auto) ip : ips) {
+			Connect(ip, port, false);
+		}
+	}
+	inline int BatchConnect(std::vector<std::pair<std::string, int>> const& ipports) noexcept {
+		Cleanup();
+		for (decltype(auto) ipport : ipports) {
+			Connect(ipport.first, ipport.second, false);
+		}
+	}
+
+	inline virtual void OnConnect(std::shared_ptr<UvTcpPeer> peer) noexcept {}
 	virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept = 0;
-	inline virtual void OnConnect(int const& serial, std::shared_ptr<UvTcpPeer> peer) noexcept {};
 };
 
 template<typename ClientType>
@@ -313,11 +342,13 @@ inline std::shared_ptr<ClientType> UvLoop::CreateClient() noexcept {
 	return client;
 }
 
-inline std::shared_ptr<UvTimer> UvLoop::CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire) noexcept {
+inline std::shared_ptr<UvTimer> UvLoop::CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire = nullptr) noexcept {
 	auto timer = std::make_shared<UvTimer>();
 	if (timer->Init(&uvLoop)) return nullptr;
 	ItemsPushBack(timer);
-	timer->OnFire = std::move(onFire);
+	if (onFire) {
+		timer->OnFire = std::move(onFire);
+	}
 	if (timer->Start(timeoutMS, repeatIntervalMS)) {
 		timer->Dispose();
 		return nullptr;

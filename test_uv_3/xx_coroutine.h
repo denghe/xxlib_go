@@ -8,15 +8,15 @@ using Coroutine = boost::coroutines2::coroutine<void>::push_type;
 struct Coroutines {
 	std::vector<Coroutine> cors;
 	inline void Add(Coroutine&& cf) {
-		cors.push_back(std::move(cf));
-	}
-	inline void RunAdd(Coroutine&& cf) {
-		cf();
 		if (cf) {
 			cors.push_back(std::move(cf));
 		}
 	}
-	void RunOnce() {
+	inline void RunAdd(Coroutine&& cf) {
+		cf();
+		Add(std::move(cf));
+	}
+	size_t RunOnce() {
 		if (cors.size()) {
 			for (decltype(auto) i = cors.size() - 1; i != (size_t)-1; --i) {
 				cors[i]();
@@ -28,6 +28,7 @@ struct Coroutines {
 				}
 			}
 		}
+		return cors.size();
 	}
 };
 
