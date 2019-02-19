@@ -1,133 +1,61 @@
-﻿#include "xx_uv_cpp.h"
-#include "xx_coroutine.h"
-#include "xx_stackless.h"
-#include "xx_bbuffer.h"
+﻿#include "xx_uv.h"
+#include "xx_uv_coro.h"
 #include <iostream>
-#include <chrono>
 
-struct PackagePeer : UvTcpPeer {
-	BBuffer buf;
-	BBuffer sendBB;
-	std::vector<std::shared_ptr<BObject>> recvs;
-	std::function<int()> OnRecv;
-
-	inline int Unpack(char const* const& recvBuf, uint32_t const& recvLen) noexcept override {
-		buf.Append(recvBuf, recvLen);
-		uint32_t offset = 0;
-		while (offset + 4 <= buf.len) {							// ensure header len( 4 bytes )
-			auto len = buf[offset + 0] + (buf[offset + 1] << 8) + (buf[offset + 2] << 16) + (buf[offset + 3] << 24);
-			if (len <= 0 /* || len > maxLimit */) return -1;	// invalid length
-			if (offset + 4 + len > buf.len) break;				// not enough data
-
-			offset += 4;
-			std::shared_ptr<BObject> o;
-			buf.offset = offset;
-			if (int r = buf.ReadRoot(o)) return r;
-			recvs.push_back(std::move(o));
-			offset += len;
-		}
-		buf.RemoveFront(offset);
-
-		if (recvs.empty()) return 0;
-		return OnRecv ? 0 : OnRecv();
-	}
-
-	inline int SendPackage(std::shared_ptr<BObject> const& pkg) {
-		sendBB.Reserve(sizeof(uv_write_t_ex) + 4);
-		sendBB.len = sizeof(uv_write_t_ex) + 4;					// skip req + header space
-		sendBB.WriteRoot(pkg);
-
-		auto buf = sendBB.buf;									// cut buf for send
-		auto len = sendBB.len - sizeof(uv_write_t_ex) - 4;
-		sendBB.buf = nullptr;
-		sendBB.len = 0;
-		sendBB.cap = 0;
-
-		buf[sizeof(uv_write_t_ex) + 0] = uint8_t(len);			// fill package len
-		buf[sizeof(uv_write_t_ex) + 1] = uint8_t(len >> 8);
-		buf[sizeof(uv_write_t_ex) + 2] = uint8_t(len >> 16);
-		buf[sizeof(uv_write_t_ex) + 3] = uint8_t(len >> 24);
-
-		auto req = (uv_write_t_ex*)buf;							// fill req args
-		req->buf.base = (char*)(req + 1);
-		req->buf.len = decltype(uv_buf_t::len)(len + 4);
-		return Send(req);
-	}
-};
-
-struct TcpPeer : UvTcpPeer {
-	inline int Unpack(char const* const& buf, uint32_t const& len) noexcept override {
-		std::cout << "recv " << buf[0] << std::endl;
-		return -1;	// 断开
-	}
-};
-struct TcpClient : UvTcpClient {
-	using UvTcpClient::UvTcpClient;
-	inline virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept override {
-		return std::make_shared<TcpPeer>();
-	}
-};
-
-struct UvLoopCor : UvLoop, Stackless {
-	std::chrono::time_point<std::chrono::system_clock> corsLastTime;
-	std::chrono::nanoseconds corsDurationPool;
-	UvLoopCor(double const& framesPerSecond) : UvLoop() {
-		if (funcs.size()) throw - 1;
-		auto timer = CreateTimer(0, 1);
-		if (!timer) throw -2;
-		corsLastTime = std::chrono::system_clock::now();
-		corsDurationPool = std::chrono::nanoseconds(0);
-		timer->OnFire = [this, timer, nanosPerFrame = std::chrono::nanoseconds(int64_t(1.0 / framesPerSecond * 1000000000)) ] {
-			auto currTime = std::chrono::system_clock::now();
-			corsDurationPool += currTime - corsLastTime;
-			corsLastTime = currTime;
-			while (corsDurationPool > nanosPerFrame) {
-				if (!RunOnce()) {
-					timer->Dispose();
-					return;
-				};
-				corsDurationPool -= nanosPerFrame;
-			}
-		};
-	}
-	inline virtual void Stop() noexcept override {
-		funcs.clear();
-		this->UvLoop::Stop();
-	}
-};
 
 int main() {
-	UvLoopCor loop(61);
+	UvLoopEx loop(61);
 	struct Ctx1 {
-		std::shared_ptr<TcpClient> client;
-		std::shared_ptr<TcpPeer> peer;
+		std::shared_ptr<UvTcpClient> client;
+		std::shared_ptr<UvTcpPeer> peer;
 		std::chrono::system_clock::time_point t;
+		std::vector<Buffer> recvs;
 	};
 	loop.Add([&, zs = std::make_shared<Ctx1>()](int const& lineNumber) {
-		switch (lineNumber) {
-		case 0:
-			zs->client = loop.CreateClient<TcpClient>();
+		COR_BEGIN
+			zs->client = loop.CreateClient<UvTcpClient>();
 		LabConnect:
 			std::cout << "connecting...\n";
 			zs->client->Connect("127.0.0.1", 12345);
-			zs->t = std::chrono::system_clock::now() + std::chrono::seconds(5);
+			zs->t = std::chrono::system_clock::now() + std::chrono::seconds(2);
 			while (!zs->client->peer) {
-				return 1; case 1:;
+				COR_YIELD
 				if (std::chrono::system_clock::now() > zs->t) {		// timeout check
 					std::cout << "timeout. retry\n";
 					goto LabConnect;
 				}
 			}
 			std::cout << "connected.\n";
-			zs->peer = std::move(std::static_pointer_cast<TcpPeer>(zs->client->peer));
-			zs->peer->Send("a", 1);
+			zs->peer = std::move(std::static_pointer_cast<UvTcpPeer>(zs->client->peer));
+			zs->peer->OnReceivePack = [wzs = std::weak_ptr<Ctx1>(zs)](uint8_t const* const& buf, uint32_t const& len) {
+				if (auto zs = wzs.lock()) {
+					Buffer b(len);
+					b.Append(buf, len);
+					zs->recvs.push_back(std::move(b));
+				}
+				return 0;
+			};
+			zs->recvs.clear();
 
-			while (!zs->peer->Disposed()) {		// check if disconnected, reconnect
-				return 2; case 2:;
+		LabSend:
+			std::cout << "send 'asdf'\n";
+			zs->peer->SendPack((uint8_t*)"asdf", 4);
+
+			std::cout << "wait echo & check state\n";
+		LabWait:
+			COR_YIELD
+			if (zs->peer->Disposed()) goto LabConnect;
+			if (zs->recvs.size()) {
+				for (decltype(auto) b : zs->recvs) {
+					std::cout << std::string((char*)b.buf, b.len) << std::endl;
+				}
+				zs->recvs.clear();
+				goto LabSend;
 			}
+			goto LabWait;
+			std::cout << "disconnected. retry\n";
 			goto LabConnect;
-		}
-		return (int)0xFFFFFFFF;
+		COR_END
 	});
 	loop.Run();
 	std::cout << "end.\n";

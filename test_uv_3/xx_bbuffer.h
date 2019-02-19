@@ -37,8 +37,15 @@ struct BBuffer : Buffer, BObject {
 
 
 	using Buffer::Buffer;
+	BBuffer(BBuffer&& o) : Buffer(std::move(o)), offset(o.offset) {
+		o.offset = 0;
+	}
+	inline BBuffer& operator=(BBuffer&& o) {
+		this->Buffer::operator=(std::move(o));
+		std::swap(offset, o.offset);
+		return *this;
+	}
 	BBuffer(BBuffer const&) = delete;
-	BBuffer& operator=(BBuffer&&) = default;
 	BBuffer& operator=(BBuffer const&) = delete;
 
 

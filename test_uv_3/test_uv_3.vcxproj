@@ -97,9 +97,11 @@
     <ClInclude Include="xx_buffer.h" />
     <ClInclude Include="xx_coroutine.h" />
     <ClInclude Include="xx_stackless.h" />
-    <ClInclude Include="xx_uv_cpp.h" />
-    <ClInclude Include="xx_uv_cpp_echo.h" />
-    <ClInclude Include="xx_uv_cpp_package.h" />
+    <ClInclude Include="xx_uv_base.h" />
+    <ClInclude Include="test_xx_uv_echo.h" />
+    <ClInclude Include="xx_uv.h" />
+    <ClInclude Include="xx_uv_pkg.h" />
+    <ClInclude Include="xx_uv_coro.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -64,7 +64,8 @@ struct UvLoop {
 	template<typename ClientType>
 	std::shared_ptr<ClientType> CreateClient() noexcept;
 
-	std::shared_ptr<UvTimer> CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire) noexcept;
+	template<typename TimerType = UvTimer>
+	std::shared_ptr<TimerType> CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire = nullptr) noexcept;
 
 	inline virtual void Stop() noexcept {
 		if (items.size()) {
@@ -81,6 +82,7 @@ struct UvLoop {
 };
 
 // todo: async
+
 struct UvTimer : UvItem {
 	uv_timer_t uvTimer;
 	std::function<void()> OnFire;
@@ -89,12 +91,12 @@ struct UvTimer : UvItem {
 	}
 	inline virtual void Dispose() noexcept override {
 		assert(!Disposed());
+		OnFire = nullptr;
 		auto h = (uv_handle_t*)&uvTimer;
 		assert(!uv_is_closing(h));
 		uv_close(h, [](uv_handle_t* h) {
 			auto self = container_of(h, UvTimer, uvTimer);
 			container_of(self->uvTimer.loop, UvLoop, uvLoop)->ItemsSwapRemoveAt(self->indexAtContainer);
-			self->OnFire = nullptr;
 		});
 	}
 	inline int Start(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS) {
@@ -133,14 +135,23 @@ struct UvTcp : UvItem {
 	}
 };
 
+struct UvTcpPeerBase;
 struct uv_write_t_ex : uv_write_t {
 	uv_buf_t buf;
+	UvTcpPeerBase* peer;
 };
 
-struct UvTcpPeer : UvTcp {
-	UvTcpPeer() = default;
-	UvTcpPeer(UvTcpPeer const&) = delete;
-	UvTcpPeer& operator=(UvTcpPeer const&) = delete;
+struct UvTcpPeerBase : UvTcp {
+	std::function<int(uint8_t const* const& buf, uint32_t const& len)> OnReceive;
+
+	UvTcpPeerBase() = default;
+	UvTcpPeerBase(UvTcpPeerBase const&) = delete;
+	UvTcpPeerBase& operator=(UvTcpPeerBase const&) = delete;
+
+	inline virtual void Dispose() noexcept override {
+		OnReceive = nullptr;
+		this->UvTcp::Dispose();
+	}
 
 	inline void ReadStart() noexcept {
 		assert(!Disposed());
@@ -148,9 +159,9 @@ struct UvTcpPeer : UvTcp {
 			buf->base = (char*)malloc(suggested_size);
 			buf->len = decltype(uv_buf_t::len)(suggested_size);
 		}, [](uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
-			auto self = container_of(stream, UvTcpPeer, uvTcp);
+			auto self = container_of(stream, UvTcpPeerBase, uvTcp);
 			if (nread > 0) {
-				nread = self->Unpack(buf->base, (uint32_t)nread);
+				nread = self->Unpack((uint8_t*)buf->base, (uint32_t)nread);
 			}
 			free(buf->base);
 			if (nread < 0) {
@@ -159,18 +170,20 @@ struct UvTcpPeer : UvTcp {
 		});
 	}
 
-	inline virtual int Send(uv_write_t_ex* const& req) noexcept {
+	inline int Send(uv_write_t_ex* const& req) noexcept {
 		assert(!Disposed());
 		// todo: check send queue len ? protect?
+		req->peer = this;
 		return uv_write(req, (uv_stream_t*)&uvTcp, &req->buf, 1, [](uv_write_t *req, int status) {
+			auto peer = ((uv_write_t_ex*)req)->peer;
 			free(req);
 			if (status) {
-				container_of(req->handle, UvTcpPeer, uvTcp)->Dispose();
+				peer->Dispose();
 			}
 		});
 	}
 
-	inline virtual int Send(char const* const& buf, ssize_t const& dataLen) noexcept {
+	inline int Send(char const* const& buf, ssize_t const& dataLen) noexcept {
 		assert(!Disposed());
 		auto req = (uv_write_t_ex*)malloc(sizeof(uv_write_t_ex) + dataLen);
 		memcpy(req + 1, buf, dataLen);
@@ -179,16 +192,20 @@ struct UvTcpPeer : UvTcp {
 		return Send(req);
 	}
 
-	virtual int Unpack(char const* const& buf, uint32_t const& len) noexcept = 0;
+	virtual int Unpack(uint8_t const* const& buf, uint32_t const& len) noexcept {
+		return OnReceive ? OnReceive(buf, len) : 0;
+	}
 };
 
-struct UvTcpListener : UvTcp {
-	UvTcpListener() = default;
-	UvTcpListener(UvTcpListener const&) = delete;
-	UvTcpListener& operator=(UvTcpListener const&) = delete;
+struct UvTcpListenerBase : UvTcp {
+	UvTcpListenerBase() = default;
+	UvTcpListenerBase(UvTcpListenerBase const&) = delete;
+	UvTcpListenerBase& operator=(UvTcpListenerBase const&) = delete;
 
-	virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept = 0;
-	inline virtual void OnAccept(std::shared_ptr<UvTcpPeer> peer) noexcept {};
+	inline virtual std::shared_ptr<UvTcpPeerBase> OnCreatePeer() noexcept {
+		return std::make_shared<UvTcpPeerBase>();
+	}
+	inline virtual void OnAccept(std::shared_ptr<UvTcpPeerBase> peer) noexcept {};
 };
 
 template<typename ListenerType>
@@ -207,7 +224,7 @@ inline std::shared_ptr<ListenerType> UvLoop::CreateListener(std::string const& i
 
 	if (uv_listen((uv_stream_t*)&listener->uvTcp, backlog, [](uv_stream_t* server, int status) {
 		if (status) return;
-		auto self = container_of(server, UvTcpListener, uvTcp);
+		auto self = container_of(server, UvTcpListenerBase, uvTcp);
 		auto peer = self->OnCreatePeer();
 		if (!peer || peer->Init(server->loop)) return;
 
@@ -228,24 +245,24 @@ LabEnd:
 	return listener;
 }
 
-struct UvTcpClient;
+struct UvTcpClientBase;
 struct uv_connect_t_ex : uv_connect_t {
-	std::shared_ptr<UvTcpPeer> peer;
-	std::shared_ptr<UvTcpClient> client;
+	std::shared_ptr<UvTcpPeerBase> peer;
+	std::shared_ptr<UvTcpClientBase> client;
 	int serial;
 	int batchNumber;
 };
 
-struct UvTcpClient : UvItem, std::enable_shared_from_this<UvTcpClient> {
+struct UvTcpClientBase : UvItem, std::enable_shared_from_this<UvTcpClientBase> {
 	UvLoop& loop;
 	int serial = 0;
 	std::unordered_map<int, uv_connect_t_ex*> reqs;
 	int batchNumber = 0;
-	std::shared_ptr<UvTcpPeer> peer;
+	std::shared_ptr<UvTcpPeerBase> peer;
 
-	UvTcpClient(UvLoop& loop) noexcept : loop(loop) {}
-	UvTcpClient(UvTcpClient const&) = delete;
-	UvTcpClient& operator=(UvTcpClient const&) = delete;
+	UvTcpClientBase(UvLoop& loop) noexcept : loop(loop) {}
+	UvTcpClientBase(UvTcpClientBase const&) = delete;
+	UvTcpClientBase& operator=(UvTcpClientBase const&) = delete;
 
 	inline virtual void Dispose() noexcept override {
 		Cleanup();
@@ -332,8 +349,10 @@ struct UvTcpClient : UvItem, std::enable_shared_from_this<UvTcpClient> {
 		}
 	}
 
-	inline virtual void OnConnect(std::shared_ptr<UvTcpPeer> peer) noexcept {}
-	virtual std::shared_ptr<UvTcpPeer> OnCreatePeer() noexcept = 0;
+	inline virtual std::shared_ptr<UvTcpPeerBase> OnCreatePeer() noexcept {
+		return std::make_shared<UvTcpPeerBase>();
+	}
+	inline virtual void OnConnect(std::shared_ptr<UvTcpPeerBase> peer) noexcept {}
 };
 
 template<typename ClientType>
@@ -343,8 +362,9 @@ inline std::shared_ptr<ClientType> UvLoop::CreateClient() noexcept {
 	return client;
 }
 
-inline std::shared_ptr<UvTimer> UvLoop::CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire = nullptr) noexcept {
-	auto timer = std::make_shared<UvTimer>();
+template<typename TimerType>
+inline std::shared_ptr<TimerType> UvLoop::CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire) noexcept {
+	auto timer = std::make_shared<TimerType>();
 	if (timer->Init(&uvLoop)) return nullptr;
 	ItemsPushBack(timer);
 	if (onFire) {

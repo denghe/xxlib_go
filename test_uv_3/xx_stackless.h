@@ -37,14 +37,9 @@ struct Stackless {
 	}
 };
 
-//BEGIN			switch (lineNumber)	{ case 0:
-//LAB(n)		case n:
-//END			} return (int)0xFFFFFFFF;
-//YIELD(n)		return n; case n:
-//YIELDTO(n)	return n;
-//GOTOEND()		return (int)0xFFFFFFFF;
-//GOTO(n)		goto Lab##n;
-//SLEEP(ticks)	return -ticks;
+#define COR_BEGIN	switch (lineNumber) { case 0:
+#define COR_YIELD	return __LINE__; case __LINE__:;
+#define COR_END		} return (int)0xFFFFFFFF;
 
 /*
 UvLoop loop;
