@@ -66,7 +66,7 @@ struct UvLoop {
 
 	std::shared_ptr<UvTimer> CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire) noexcept;
 
-	inline void Stop() noexcept {
+	inline virtual void Stop() noexcept {
 		if (items.size()) {
 			for (int i = (int)items.size() - 1; i >= 0; --i) {
 				items[i]->Dispose();
@@ -94,6 +94,7 @@ struct UvTimer : UvItem {
 		uv_close(h, [](uv_handle_t* h) {
 			auto self = container_of(h, UvTimer, uvTimer);
 			container_of(self->uvTimer.loop, UvLoop, uvLoop)->ItemsSwapRemoveAt(self->indexAtContainer);
+			self->OnFire = nullptr;
 		});
 	}
 	inline int Start(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS) {
@@ -132,6 +133,10 @@ struct UvTcp : UvItem {
 	}
 };
 
+struct uv_write_t_ex : uv_write_t {
+	uv_buf_t buf;
+};
+
 struct UvTcpPeer : UvTcp {
 	UvTcpPeer() = default;
 	UvTcpPeer(UvTcpPeer const&) = delete;
@@ -153,16 +158,10 @@ struct UvTcpPeer : UvTcp {
 			}
 		});
 	}
-	inline virtual int Send(char const* const& buf, ssize_t const& dataLen) noexcept {
-		assert(!Disposed());
-		struct uv_write_t_ex : uv_write_t {
-			uv_buf_t buf;
-		};
-		auto req = (uv_write_t_ex*)malloc(sizeof(uv_write_t_ex) + dataLen);
-		memcpy(req + 1, buf, dataLen);
-		req->buf.base = (char*)(req + 1);
-		req->buf.len = decltype(uv_buf_t::len)(dataLen);
 
+	inline virtual int Send(uv_write_t_ex* const& req) noexcept {
+		assert(!Disposed());
+		// todo: check send queue len ? protect?
 		return uv_write(req, (uv_stream_t*)&uvTcp, &req->buf, 1, [](uv_write_t *req, int status) {
 			free(req);
 			if (status) {
@@ -170,6 +169,16 @@ struct UvTcpPeer : UvTcp {
 			}
 		});
 	}
+
+	inline virtual int Send(char const* const& buf, ssize_t const& dataLen) noexcept {
+		assert(!Disposed());
+		auto req = (uv_write_t_ex*)malloc(sizeof(uv_write_t_ex) + dataLen);
+		memcpy(req + 1, buf, dataLen);
+		req->buf.base = (char*)(req + 1);
+		req->buf.len = decltype(uv_buf_t::len)(dataLen);
+		return Send(req);
+	}
+
 	virtual int Unpack(char const* const& buf, uint32_t const& len) noexcept = 0;
 };
 

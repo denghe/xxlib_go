@@ -1,8 +1,59 @@
 ﻿#include "xx_uv_cpp.h"
 #include "xx_coroutine.h"
 #include "xx_stackless.h"
+#include "xx_bbuffer.h"
 #include <iostream>
 #include <chrono>
+
+struct PackagePeer : UvTcpPeer {
+	BBuffer buf;
+	BBuffer sendBB;
+	std::vector<std::shared_ptr<BObject>> recvs;
+	std::function<int()> OnRecv;
+
+	inline int Unpack(char const* const& recvBuf, uint32_t const& recvLen) noexcept override {
+		buf.Append(recvBuf, recvLen);
+		uint32_t offset = 0;
+		while (offset + 4 <= buf.len) {							// ensure header len( 4 bytes )
+			auto len = buf[offset + 0] + (buf[offset + 1] << 8) + (buf[offset + 2] << 16) + (buf[offset + 3] << 24);
+			if (len <= 0 /* || len > maxLimit */) return -1;	// invalid length
+			if (offset + 4 + len > buf.len) break;				// not enough data
+
+			offset += 4;
+			std::shared_ptr<BObject> o;
+			buf.offset = offset;
+			if (int r = buf.ReadRoot(o)) return r;
+			recvs.push_back(std::move(o));
+			offset += len;
+		}
+		buf.RemoveFront(offset);
+
+		if (recvs.empty()) return 0;
+		return OnRecv ? 0 : OnRecv();
+	}
+
+	inline int SendPackage(std::shared_ptr<BObject> const& pkg) {
+		sendBB.Reserve(sizeof(uv_write_t_ex) + 4);
+		sendBB.len = sizeof(uv_write_t_ex) + 4;					// skip req + header space
+		sendBB.WriteRoot(pkg);
+
+		auto buf = sendBB.buf;									// cut buf for send
+		auto len = sendBB.len - sizeof(uv_write_t_ex) - 4;
+		sendBB.buf = nullptr;
+		sendBB.len = 0;
+		sendBB.cap = 0;
+
+		buf[sizeof(uv_write_t_ex) + 0] = uint8_t(len);			// fill package len
+		buf[sizeof(uv_write_t_ex) + 1] = uint8_t(len >> 8);
+		buf[sizeof(uv_write_t_ex) + 2] = uint8_t(len >> 16);
+		buf[sizeof(uv_write_t_ex) + 3] = uint8_t(len >> 24);
+
+		auto req = (uv_write_t_ex*)buf;							// fill req args
+		req->buf.base = (char*)(req + 1);
+		req->buf.len = decltype(uv_buf_t::len)(len + 4);
+		return Send(req);
+	}
+};
 
 struct TcpPeer : UvTcpPeer {
 	inline int Unpack(char const* const& buf, uint32_t const& len) noexcept override {
@@ -17,51 +68,70 @@ struct TcpClient : UvTcpClient {
 	}
 };
 
+struct UvLoopCor : UvLoop, Stackless {
+	std::chrono::time_point<std::chrono::system_clock> corsLastTime;
+	std::chrono::nanoseconds corsDurationPool;
+	UvLoopCor(double const& framesPerSecond) : UvLoop() {
+		if (funcs.size()) throw - 1;
+		auto timer = CreateTimer(0, 1);
+		if (!timer) throw -2;
+		corsLastTime = std::chrono::system_clock::now();
+		corsDurationPool = std::chrono::nanoseconds(0);
+		timer->OnFire = [this, timer, nanosPerFrame = std::chrono::nanoseconds(int64_t(1.0 / framesPerSecond * 1000000000)) ] {
+			auto currTime = std::chrono::system_clock::now();
+			corsDurationPool += currTime - corsLastTime;
+			corsLastTime = currTime;
+			while (corsDurationPool > nanosPerFrame) {
+				if (!RunOnce()) {
+					timer->Dispose();
+					return;
+				};
+				corsDurationPool -= nanosPerFrame;
+			}
+		};
+	}
+	inline virtual void Stop() noexcept override {
+		funcs.clear();
+		this->UvLoop::Stop();
+	}
+};
+
 int main() {
-	UvLoop loop;
-	Stackless cors;
+	UvLoopCor loop(61);
 	struct Ctx1 {
 		std::shared_ptr<TcpClient> client;
+		std::shared_ptr<TcpPeer> peer;
 		std::chrono::system_clock::time_point t;
 	};
-	cors.Add([&, zs = std::make_shared<Ctx1>()](int const& lineNumber) {
+	loop.Add([&, zs = std::make_shared<Ctx1>()](int const& lineNumber) {
 		switch (lineNumber) {
 		case 0:
 			zs->client = loop.CreateClient<TcpClient>();
-		case 1:	
 		LabConnect:
 			std::cout << "connecting...\n";
 			zs->client->Connect("127.0.0.1", 12345);
 			zs->t = std::chrono::system_clock::now() + std::chrono::seconds(5);
 			while (!zs->client->peer) {
-				return 2; case 2:;
+				return 1; case 1:;
 				if (std::chrono::system_clock::now() > zs->t) {		// timeout check
 					std::cout << "timeout. retry\n";
 					goto LabConnect;
 				}
 			}
 			std::cout << "connected.\n";
-			zs->client->peer->Send("a", 1);
+			zs->peer = std::move(std::static_pointer_cast<TcpPeer>(zs->client->peer));
+			zs->peer->Send("a", 1);
 
-			while (!zs->client->peer->Disposed()) {		// check if disconnected, reconnect
-				return 3; case 3:;
+			while (!zs->peer->Disposed()) {		// check if disconnected, reconnect
+				return 2; case 2:;
 			}
 			goto LabConnect;
 		}
 		return (int)0xFFFFFFFF;
 	});
-
-	auto timer = loop.CreateTimer(0, 1000 / 61);
-	timer->OnFire = [&] {
-		if (!cors.RunOnce()) {
-			timer->Dispose();
-		};
-	};
 	loop.Run();
-
 	std::cout << "end.\n";
 	std::cin.get();
-
 	return 0;
 }
 
