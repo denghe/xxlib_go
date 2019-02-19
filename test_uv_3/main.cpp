@@ -1,5 +1,6 @@
 ﻿#include "xx_uv_cpp.h"
 #include "xx_coroutine.h"
+#include "xx_stackless.h"
 #include <iostream>
 #include <chrono>
 
@@ -18,31 +19,40 @@ struct TcpClient : UvTcpClient {
 
 int main() {
 	UvLoop loop;
-	Coroutines cors;
-	cors.Add(Coroutine([&](Yield& yield) {
-		auto client = loop.CreateClient<TcpClient>();
-	LabConnect:
-		std::cout << "connecting...\n";
-		client->Cleanup();
-		client->Connect("127.0.0.1", 12345);
-		auto t = std::chrono::system_clock::now() + std::chrono::seconds(5);
-		while (!client->peer) {
-			yield();
-			if (std::chrono::system_clock::now() > t) {		// timeout check
-				std::cout << "timeout. retry\n";
-				goto LabConnect;
+	Stackless cors;
+	struct Ctx1 {
+		std::shared_ptr<TcpClient> client;
+		std::chrono::system_clock::time_point t;
+	};
+	cors.Add([&, zs = std::make_shared<Ctx1>()](int const& lineNumber) {
+		switch (lineNumber) {
+		case 0:
+			zs->client = loop.CreateClient<TcpClient>();
+		case 1:	
+		LabConnect:
+			std::cout << "connecting...\n";
+			zs->client->Connect("127.0.0.1", 12345);
+			zs->t = std::chrono::system_clock::now() + std::chrono::seconds(5);
+			while (!zs->client->peer) {
+				return 2; case 2:;
+				if (std::chrono::system_clock::now() > zs->t) {		// timeout check
+					std::cout << "timeout. retry\n";
+					goto LabConnect;
+				}
 			}
+			std::cout << "connected.\n";
+			zs->client->peer->Send("a", 1);
+
+			while (!zs->client->peer->Disposed()) {		// check if disconnected, reconnect
+				return 3; case 3:;
+			}
+			goto LabConnect;
 		}
-		std::cout << "connected. send 'a'\n";
-		client->peer->Send("a", 1);
-		while (!client->peer->Disposed()) {		// wait echo
-			yield();
-		}
-		goto LabConnect;	// retry
-	}));
+		return (int)0xFFFFFFFF;
+	});
 
 	auto timer = loop.CreateTimer(0, 1000 / 61);
-	timer->OnFire = [&] { 
+	timer->OnFire = [&] {
 		if (!cors.RunOnce()) {
 			timer->Dispose();
 		};
@@ -54,9 +64,6 @@ int main() {
 
 	return 0;
 }
-
-
-
 
 
 

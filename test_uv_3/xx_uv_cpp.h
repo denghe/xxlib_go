@@ -239,20 +239,8 @@ struct UvTcpClient : UvItem, std::enable_shared_from_this<UvTcpClient> {
 	UvTcpClient& operator=(UvTcpClient const&) = delete;
 
 	inline virtual void Dispose() noexcept override {
-		for (decltype(auto) kv : reqs) {
-			uv_cancel((uv_req_t*)kv.second);
-		}
-		reqs.clear();
+		Cleanup();
 		loop.ItemsSwapRemoveAt(indexAtContainer);
-	}
-
-	inline int Cancel(int const& serial) noexcept {
-		assert(!Disposed());
-		auto iter = reqs.find(serial);
-		if (iter != reqs.end()) {
-			return uv_cancel((uv_req_t*)iter->second);
-		}
-		return 0;
 	}
 
 	// return errNum or serial
@@ -315,6 +303,10 @@ struct UvTcpClient : UvItem, std::enable_shared_from_this<UvTcpClient> {
 			}
 			peer.reset();
 		}
+		for (decltype(auto) kv : reqs) {
+			uv_cancel((uv_req_t*)kv.second);
+		}
+		reqs.clear();
 		++batchNumber;
 	}
 

@@ -42,3 +42,10 @@ void Sleep(Yield& yield, std::chrono::system_clock::time_point const& t) {
 		yield();
 	}
 }
+
+/*
+Coroutines cors;
+cors.Add(Coroutine([&](Yield& yield) {
+	yield();
+}));
+*/
