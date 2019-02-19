@@ -1,10 +1,10 @@
 ﻿#include "xx_uv.h"
-#include "xx_uv_coro.h"
+#include "xx_uv_stackless.h"
 #include <iostream>
 
 
 int main() {
-	UvLoopEx loop(61);
+	UvLoopStackless loop(61);
 	struct Ctx1 {
 		std::shared_ptr<UvTcpClient> client;
 		std::shared_ptr<UvTcpPeer> peer;

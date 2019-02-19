@@ -100,8 +100,9 @@
     <ClInclude Include="xx_uv_base.h" />
     <ClInclude Include="test_xx_uv_echo.h" />
     <ClInclude Include="xx_uv.h" />
+    <ClInclude Include="xx_uv_coroutine.h" />
     <ClInclude Include="xx_uv_pkg.h" />
-    <ClInclude Include="xx_uv_coro.h" />
+    <ClInclude Include="xx_uv_stackless.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

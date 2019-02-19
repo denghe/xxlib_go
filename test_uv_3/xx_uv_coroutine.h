@@ -1,13 +1,13 @@
 #pragma once
 #include "xx_uv_base.h"
-#include "xx_stackless.h"
+#include "xx_coroutine.h"
 #include <chrono>
 
-struct UvLoopEx : UvLoop, Stackless {
+struct UvLoopCoroutine : UvLoop, Coroutines {
 	std::chrono::time_point<std::chrono::system_clock> corsLastTime;
 	std::chrono::nanoseconds corsDurationPool;
-	UvLoopEx(double const& framesPerSecond) : UvLoop() {
-		if (funcs.size()) throw - 1;
+	UvLoopCoroutine(double const& framesPerSecond) : UvLoop() {
+		if (cors.size()) throw - 1;
 		auto timer = CreateTimer<>(0, 1);
 		if (!timer) throw - 2;
 		corsLastTime = std::chrono::system_clock::now();
@@ -26,7 +26,7 @@ struct UvLoopEx : UvLoop, Stackless {
 		};
 	}
 	inline virtual void Stop() noexcept override {
-		funcs.clear();
+		cors.clear();
 		this->UvLoop::Stop();
 	}
 };
