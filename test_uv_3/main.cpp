@@ -42,17 +42,16 @@ int main() {
 			zs->peer->SendPack((uint8_t*)"asdf", 4);
 
 			std::cout << "wait echo & check state\n";
-		LabWait:
-			COR_YIELD
-			if (zs->peer->Disposed()) goto LabConnect;
-			if (zs->recvs.size()) {
-				for (decltype(auto) b : zs->recvs) {
-					std::cout << std::string((char*)b.buf, b.len) << std::endl;
+			while (!zs->peer->Disposed()) {
+				COR_YIELD
+				if (zs->recvs.size()) {
+					for (decltype(auto) b : zs->recvs) {
+						std::cout << std::string((char*)b.buf, b.len) << std::endl;
+					}
+					zs->recvs.clear();
+					goto LabSend;
 				}
-				zs->recvs.clear();
-				goto LabSend;
 			}
-			goto LabWait;
 			std::cout << "disconnected. retry\n";
 			goto LabConnect;
 		COR_END

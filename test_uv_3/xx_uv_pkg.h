@@ -8,7 +8,7 @@ struct UvTcpPeerEx : UvTcpPeer {
 	BBuffer sendBB;
 	std::function<int(std::shared_ptr<BObject>)> OnRecv;
 
-	virtual int HandlePack(char const* const& recvBuf, uint32_t const& recvLen) noexcept override {
+	virtual int HandlePack(uint8_t const* const& recvBuf, uint32_t const& recvLen) noexcept override {
 		recvBB.buf = (uint8_t*)recvBuf;							// replace recvBB's memory
 		recvBB.len = recvLen;
 		recvBB.cap = recvLen;
@@ -31,7 +31,7 @@ struct UvTcpPeerEx : UvTcpPeer {
 		sendBB.len = 0;
 		sendBB.cap = 0;
 
-		return SendPack((char*)buf, len);
+		return SendPack(buf, len);
 	}
 };
 

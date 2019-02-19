@@ -138,7 +138,6 @@ struct UvTcp : UvItem {
 struct UvTcpPeerBase;
 struct uv_write_t_ex : uv_write_t {
 	uv_buf_t buf;
-	UvTcpPeerBase* peer;
 };
 
 struct UvTcpPeerBase : UvTcp {
@@ -173,14 +172,11 @@ struct UvTcpPeerBase : UvTcp {
 	inline int Send(uv_write_t_ex* const& req) noexcept {
 		assert(!Disposed());
 		// todo: check send queue len ? protect?
-		req->peer = this;
-		return uv_write(req, (uv_stream_t*)&uvTcp, &req->buf, 1, [](uv_write_t *req, int status) {
-			auto peer = ((uv_write_t_ex*)req)->peer;
+		int r = uv_write(req, (uv_stream_t*)&uvTcp, &req->buf, 1, [](uv_write_t *req, int status) {
 			free(req);
-			if (status) {
-				peer->Dispose();
-			}
 		});
+		if (r) Dispose();
+		return r;
 	}
 
 	inline int Send(char const* const& buf, ssize_t const& dataLen) noexcept {
