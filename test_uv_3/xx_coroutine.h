@@ -48,4 +48,6 @@ Coroutines cors;
 cors.Add(Coroutine([&](Yield& yield) {
 	yield();
 }));
+....
+while (cors.RunOnce()) {}
 */
