@@ -18,15 +18,11 @@ struct UvLoopCoroutine : UvLoop, Coroutines {
 			corsLastTime = currTime;
 			while (corsDurationPool > nanosPerFrame) {
 				if (!RunOnce()) {
-					timer->Dispose();
+					timer->OnFire = nullptr;
 					return;
 				};
 				corsDurationPool -= nanosPerFrame;
 			}
 		};
-	}
-	inline virtual void Stop() noexcept override {
-		cors.clear();
-		this->UvLoop::Stop();
 	}
 };

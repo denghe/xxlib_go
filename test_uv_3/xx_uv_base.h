@@ -10,6 +10,9 @@
 #include <cassert>
 #include <vector>
 
+// 重要：
+// std::function 的捕获列表不可以随意增加引用以导致无法析构, 尽量使用 weak_ptr. 除非该对象仅依附于 std::function
+
 #ifndef _offsetof
 #define _offsetof(s,m) ((size_t)&reinterpret_cast<char const volatile&>((((s*)0)->m)))
 #endif
@@ -19,23 +22,31 @@
   ((type *) ((char *) (ptr) - _offsetof(type, member)))
 #endif
 
+template<typename T>
+T* UvAlloc(void* const& ud) noexcept {
+	auto p = (void**)::malloc(sizeof(void*) + sizeof(T));
+	if (!p) return nullptr;
+	p[0] = ud;
+	return (T*)&p[1];
+}
+inline void UvFree(void* const& p) noexcept {
+	::free((void**)p - 1);
+}
+template<typename T>
+T* UvGetSelf(void* const& p) noexcept {
+	return (T*)*((void**)p - 1);
+}
 
-// 重要：
-// std::function 的捕获列表不可以随意增加引用以导致无法析构, 尽量使用 weak_ptr. 除非该对象仅依附于 std::function
-// 如果在析构时会触发回调，派生类需要在自己的析构中 callback 以避免派生类被析构之后在基类中触发回调从而访问到已析构成员
-
-struct UvItem {
-	bool inited = false;
-	bool disposed = false;
-	void Dispose(uv_handle_t* const& h) noexcept {
-		if (disposed) return;
-		disposed = true;
-		if (!inited) return;
-		assert(!uv_is_closing(h));
-		uv_close(h, nullptr);
-	}
-	virtual ~UvItem() = 0;	// Dispose((uv_handle_t*)&XXXXXXX);
-};
+template<typename T>
+void UvHandleCloseAndFree(T*& tar) noexcept {
+	if (!tar) return;
+	auto h = (uv_handle_t*)tar;
+	tar = nullptr;
+	assert(!uv_is_closing(h));
+	uv_close(h, [](uv_handle_t* handle) {
+		UvFree(handle);
+	});
+}
 
 struct UvTimer;
 
@@ -63,49 +74,61 @@ struct UvLoop {
 
 // todo: async
 
-struct UvTimer : UvItem {
-	uv_timer_t uvTimer;
+struct UvTimer {
+	uv_timer_t* uvTimer = nullptr;
 	std::function<void()> OnFire;
 
-	~UvTimer() {
-		Dispose((uv_handle_t*)&uvTimer);
+	virtual ~UvTimer() {
+		UvHandleCloseAndFree(uvTimer);
 	}
 	inline int Init(uv_loop_t* const& loop) noexcept {
-		if (inited) return 0;
-		if (int r = uv_timer_init(loop, &uvTimer)) return r;
-		inited = true;
+		if (uvTimer) return 0;
+		uvTimer = UvAlloc<uv_timer_t>(this);
+		if (!uvTimer) return -1;
+		if (int r = uv_timer_init(loop, uvTimer)) {
+			uvTimer = nullptr;
+			return r;
+		}
 		return 0;
 	}
-	inline int Start(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS) {
-		if (disposed) return -1;
-		return uv_timer_start(&uvTimer, [](uv_timer_t* t) {
-			auto self = container_of(t, UvTimer, uvTimer);
+	inline int Start(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS) noexcept {
+		if (!uvTimer) return -1;
+		return uv_timer_start(uvTimer, [](uv_timer_t* t) {
+			auto self = UvGetSelf<UvTimer>(t);
 			if (self->OnFire) {
 				self->OnFire();
 			}
 		}, timeoutMS, repeatIntervalMS);
 	}
-	inline int Stop() {
-		if (disposed) return -1;
-		return uv_timer_stop(&uvTimer);
+	inline int Stop() noexcept {
+		if (!uvTimer) return -1;
+		return uv_timer_stop(uvTimer);
 	}
-	inline int Again() {
-		if (disposed) return -1;
-		return uv_timer_again(&uvTimer);
+	inline int Again() noexcept {
+		if (!uvTimer) return -1;
+		return uv_timer_again(uvTimer);
 	}
 };
 
-struct UvTcp : UvItem {
-	uv_tcp_t uvTcp;
+struct UvTcp {
+	uv_tcp_t* uvTcp = nullptr;
+
+	inline bool Disposed() noexcept {
+		return uvTcp == nullptr;
+	}
 
 	inline int Init(uv_loop_t* const& loop) noexcept {
-		if (inited) return 0;
-		if (int r = uv_tcp_init(loop, &uvTcp)) return r;
-		inited = true;
+		if (uvTcp) return 0;
+		uvTcp = UvAlloc<uv_tcp_t>(this);
+		if (!uvTcp) return -1;
+		if (int r = uv_tcp_init(loop, uvTcp)) {
+			uvTcp = nullptr;
+			return r;
+		}
 		return 0;
 	}
-	~UvTcp() {
-		Dispose((uv_handle_t*)&uvTcp);
+	virtual ~UvTcp() {
+		UvHandleCloseAndFree(uvTcp);
 	}
 };
 
@@ -122,21 +145,21 @@ struct UvTcpPeerBase : UvTcp {
 	UvTcpPeerBase(UvTcpPeerBase const&) = delete;
 	UvTcpPeerBase& operator=(UvTcpPeerBase const&) = delete;
 
-	inline virtual void Dispose(bool callback = true) {
-		if (disposed) return;
+	inline virtual void Dispose(bool callback = true) noexcept {
+		if (!uvTcp) return;
 		if (callback && OnDisconnect) {
 			OnDisconnect();
 		}
-		this->UvTcp::Dispose((uv_handle_t*)&uvTcp);
+		UvHandleCloseAndFree(uvTcp);
 	}
 
 	inline int ReadStart() noexcept {
-		assert(!disposed);
-		return uv_read_start((uv_stream_t*)&uvTcp, [](uv_handle_t* h, size_t suggested_size, uv_buf_t* buf) {
+		if (!uvTcp) return -1;
+		return uv_read_start((uv_stream_t*)uvTcp, [](uv_handle_t* h, size_t suggested_size, uv_buf_t* buf) {
 			buf->base = (char*)malloc(suggested_size);
 			buf->len = decltype(uv_buf_t::len)(suggested_size);
 		}, [](uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
-			auto self = container_of(stream, UvTcpPeerBase, uvTcp);
+			auto self = UvGetSelf<UvTcpPeerBase>(stream);
 			if (nread > 0) {
 				nread = self->Unpack((uint8_t*)buf->base, (uint32_t)nread);
 			}
@@ -148,9 +171,9 @@ struct UvTcpPeerBase : UvTcp {
 	}
 
 	inline int Send(uv_write_t_ex* const& req) noexcept {
-		assert(!disposed);
+		if (!uvTcp) return -1;
 		// todo: check send queue len ? protect?
-		int r = uv_write(req, (uv_stream_t*)&uvTcp, &req->buf, 1, [](uv_write_t *req, int status) {
+		int r = uv_write(req, (uv_stream_t*)uvTcp, &req->buf, 1, [](uv_write_t *req, int status) {
 			free(req);
 		});
 		if (r) Dispose(false);	// do not call OnDisconnect
@@ -158,7 +181,7 @@ struct UvTcpPeerBase : UvTcp {
 	}
 
 	inline int Send(char const* const& buf, ssize_t const& dataLen) noexcept {
-		assert(!disposed);
+		if (!uvTcp) return -1;
 		auto req = (uv_write_t_ex*)malloc(sizeof(uv_write_t_ex) + dataLen);
 		memcpy(req + 1, buf, dataLen);
 		req->buf.base = (char*)(req + 1);
@@ -201,14 +224,14 @@ inline std::shared_ptr<ListenerType> UvLoop::CreateListener(std::string const& i
 	else {																	// ipv6
 		if (uv_ip6_addr(ip.c_str(), port, &addr)) return nullptr;
 	}
-	if (uv_tcp_bind(&listener->uvTcp, (sockaddr*)&addr, 0)) return nullptr;
+	if (uv_tcp_bind(listener->uvTcp, (sockaddr*)&addr, 0)) return nullptr;
 
-	if (uv_listen((uv_stream_t*)&listener->uvTcp, backlog, [](uv_stream_t* server, int status) {
+	if (uv_listen((uv_stream_t*)listener->uvTcp, backlog, [](uv_stream_t* server, int status) {
 		if (status) return;
-		auto self = container_of(server, UvTcpListenerBase, uvTcp);
+		auto self = UvGetSelf<ListenerType>(server);
 		auto peer = self->CreatePeer();
 		if (!peer || peer->Init(server->loop)) return;
-		if (uv_accept(server, (uv_stream_t*)&peer->uvTcp)) return;
+		if (uv_accept(server, (uv_stream_t*)peer->uvTcp)) return;
 		if (peer->ReadStart()) return;
 		self->Accept(std::move(peer));
 	})) return nullptr;
@@ -226,7 +249,7 @@ struct uv_connect_t_ex {
 	~uv_connect_t_ex();
 };
 
-struct UvTcpClientBase : UvItem, std::enable_shared_from_this<UvTcpClientBase> {
+struct UvTcpClientBase : std::enable_shared_from_this<UvTcpClientBase> {
 	UvLoop& loop;
 	int serial = 0;
 	std::unordered_map<int, uv_connect_t_ex*> reqs;
@@ -240,16 +263,12 @@ struct UvTcpClientBase : UvItem, std::enable_shared_from_this<UvTcpClientBase> {
 	UvTcpClientBase(UvTcpClientBase const&) = delete;
 	UvTcpClientBase& operator=(UvTcpClientBase const&) = delete;
 
-	~UvTcpClientBase() {
-		Dispose();
-	}
-	inline virtual void Dispose(bool callback = false) noexcept {
-		Cleanup(callback);
+	virtual ~UvTcpClientBase() {
+		Cleanup();
 	}
 
 	// return errNum or serial
 	inline int Connect(std::string const& ip, int const& port, bool cleanup = true) noexcept {
-		assert(!disposed);
 		if (cleanup) {
 			Cleanup();
 		}
@@ -271,10 +290,10 @@ struct UvTcpClientBase : UvItem, std::enable_shared_from_this<UvTcpClientBase> {
 		req->serial = ++serial;
 		req->batchNumber = batchNumber;
 
-		if (uv_tcp_connect(&req->req, &req->peer->uvTcp, (sockaddr*)&addr, [](uv_connect_t* conn, int status) {
+		if (uv_tcp_connect(&req->req, req->peer->uvTcp, (sockaddr*)&addr, [](uv_connect_t* conn, int status) {
 			auto req = std::unique_ptr<uv_connect_t_ex>(container_of(conn, uv_connect_t_ex, req));
 			auto client = req->client_w.lock();
-			if (!client || client->disposed) return;
+			if (!client) return;
 			if (status) return;													// error or -4081 canceled
 			if (client->batchNumber > req->batchNumber) return;
 			if (client->peer) return;											// only fastest connected peer can survival
