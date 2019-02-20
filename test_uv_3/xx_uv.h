@@ -18,11 +18,6 @@ struct UvTcpPeer : UvTcpPeerBase {
 	Buffer buf;
 	std::function<int(uint8_t const* const& buf, uint32_t const& len)> OnReceivePack;
 
-	inline virtual void Dispose() noexcept override {
-		OnReceivePack = nullptr;
-		this->UvTcpPeerBase::Dispose();
-	}
-
 	inline int Unpack(uint8_t const* const& recvBuf, uint32_t const& recvLen) noexcept override {
 		buf.Append(recvBuf, recvLen);
 		uint32_t offset = 0;
@@ -67,14 +62,14 @@ struct UvTcpPeer : UvTcpPeerBase {
 };
 
 struct UvTcpListener : UvTcpListenerBase {
-	inline virtual std::shared_ptr<UvTcpPeerBase> OnCreatePeer() noexcept override {
-		return std::make_shared<UvTcpPeer>();
+	inline virtual std::shared_ptr<UvTcpPeerBase> CreatePeer() noexcept override {
+		return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpPeer>();
 	}
 };
 
 struct UvTcpClient : UvTcpClientBase {
 	using UvTcpClientBase::UvTcpClientBase;
-	inline virtual std::shared_ptr<UvTcpPeerBase> OnCreatePeer() noexcept override {
-		return std::make_shared<UvTcpPeer>();
+	inline virtual std::shared_ptr<UvTcpPeerBase> CreatePeer() noexcept override {
+		return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpPeer>();
 	}
 };

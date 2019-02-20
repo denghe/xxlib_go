@@ -36,14 +36,14 @@ struct UvTcpPeerEx : UvTcpPeer {
 };
 
 struct UvTcpListenerEx : UvTcpListenerBase {
-	inline virtual std::shared_ptr<UvTcpPeerBase> OnCreatePeer() noexcept override {
-		return std::make_shared<UvTcpPeerEx>();
+	inline virtual std::shared_ptr<UvTcpPeerBase> CreatePeer() noexcept override {
+		return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpPeerEx>();
 	}
 };
 
 struct UvTcpClientEx : UvTcpClientBase {
 	using UvTcpClientBase::UvTcpClientBase;
-	inline virtual std::shared_ptr<UvTcpPeerBase> OnCreatePeer() noexcept override {
-		return std::make_shared<UvTcpPeerEx>();
+	inline virtual std::shared_ptr<UvTcpPeerBase> CreatePeer() noexcept override {
+		return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpPeerEx>();
 	}
 };
