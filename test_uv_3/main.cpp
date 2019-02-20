@@ -1,4 +1,4 @@
-﻿#include "xx_uv.h"
+﻿#include "xx_uv_pack.h"
 #include "xx_uv_stackless.h"
 #include <iostream>
 
@@ -7,7 +7,7 @@ int main() {
 	UvLoopStackless loop(61);
 	struct Ctx1 {
 		std::shared_ptr<UvTcpClient> client;
-		std::shared_ptr<UvTcpPeer> peer;
+		std::shared_ptr<UvTcpPackPeer> peer;
 		std::chrono::system_clock::time_point t;
 		std::vector<Buffer> recvs;
 		int count = 0;
@@ -28,7 +28,7 @@ int main() {
 				}
 			}
 			std::cout << "connected.\n";
-			zs->peer = std::move(std::static_pointer_cast<UvTcpPeer>(zs->client->peer));
+			zs->peer = std::move(std::static_pointer_cast<UvTcpPackPeer>(zs->client->peer));
 			zs->peer->OnReceivePack = [wzs = std::weak_ptr<Ctx1>(zs)](uint8_t const* const& buf, uint32_t const& len) {
 				if (auto zs = wzs.lock()) {
 					Buffer b(len);

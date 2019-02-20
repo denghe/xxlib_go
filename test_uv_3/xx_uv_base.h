@@ -132,18 +132,18 @@ struct UvTcp {
 	}
 };
 
-struct UvTcpPeerBase;
+struct UvTcpBasePeer;
 struct uv_write_t_ex : uv_write_t {
 	uv_buf_t buf;
 };
 
-struct UvTcpPeerBase : UvTcp {
+struct UvTcpBasePeer : UvTcp {
 	std::function<int(uint8_t const* const& buf, uint32_t const& len)> OnReceive;
 	std::function<void()> OnDisconnect;
 
-	UvTcpPeerBase() = default;
-	UvTcpPeerBase(UvTcpPeerBase const&) = delete;
-	UvTcpPeerBase& operator=(UvTcpPeerBase const&) = delete;
+	UvTcpBasePeer() = default;
+	UvTcpBasePeer(UvTcpBasePeer const&) = delete;
+	UvTcpBasePeer& operator=(UvTcpBasePeer const&) = delete;
 
 	inline virtual void Dispose(bool callback = true) noexcept {
 		if (!uvTcp) return;
@@ -159,7 +159,7 @@ struct UvTcpPeerBase : UvTcp {
 			buf->base = (char*)malloc(suggested_size);
 			buf->len = decltype(uv_buf_t::len)(suggested_size);
 		}, [](uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
-			auto self = UvGetSelf<UvTcpPeerBase>(stream);
+			auto self = UvGetSelf<UvTcpBasePeer>(stream);
 			if (nread > 0) {
 				nread = self->Unpack((uint8_t*)buf->base, (uint32_t)nread);
 			}
@@ -180,7 +180,7 @@ struct UvTcpPeerBase : UvTcp {
 		return r;
 	}
 
-	inline int Send(char const* const& buf, ssize_t const& dataLen) noexcept {
+	inline int Send(uint8_t const* const& buf, ssize_t const& dataLen) noexcept {
 		if (!uvTcp) return -1;
 		auto req = (uv_write_t_ex*)malloc(sizeof(uv_write_t_ex) + dataLen);
 		memcpy(req + 1, buf, dataLen);
@@ -194,18 +194,18 @@ struct UvTcpPeerBase : UvTcp {
 	}
 };
 
-struct UvTcpListenerBase : UvTcp {
-	std::function<std::shared_ptr<UvTcpPeerBase>()> OnCreatePeer;
-	std::function<void(std::shared_ptr<UvTcpPeerBase>&& peer)> OnAccept;
+struct UvTcpBaseListener : UvTcp {
+	std::function<std::shared_ptr<UvTcpBasePeer>()> OnCreatePeer;
+	std::function<void(std::shared_ptr<UvTcpBasePeer>&& peer)> OnAccept;
 
-	UvTcpListenerBase() = default;
-	UvTcpListenerBase(UvTcpListenerBase const&) = delete;
-	UvTcpListenerBase& operator=(UvTcpListenerBase const&) = delete;
+	UvTcpBaseListener() = default;
+	UvTcpBaseListener(UvTcpBaseListener const&) = delete;
+	UvTcpBaseListener& operator=(UvTcpBaseListener const&) = delete;
 
-	inline virtual std::shared_ptr<UvTcpPeerBase> CreatePeer() noexcept {
-		return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpPeerBase>();
+	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept {
+		return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpBasePeer>();
 	}
-	inline virtual void Accept(std::shared_ptr<UvTcpPeerBase>&& peer) noexcept {
+	inline virtual void Accept(std::shared_ptr<UvTcpBasePeer>&& peer) noexcept {
 		if (OnAccept) {
 			OnAccept(std::move(peer));
 		}
@@ -239,31 +239,31 @@ inline std::shared_ptr<ListenerType> UvLoop::CreateListener(std::string const& i
 	return listener;
 }
 
-struct UvTcpClientBase;
+struct UvTcpBaseClient;
 struct uv_connect_t_ex {
 	uv_connect_t req;
-	std::shared_ptr<UvTcpPeerBase> peer;		// temp holder
-	std::weak_ptr<UvTcpClientBase> client_w;	// weak ref
+	std::shared_ptr<UvTcpBasePeer> peer;		// temp holder
+	std::weak_ptr<UvTcpBaseClient> client_w;	// weak ref
 	int serial;
 	int batchNumber;
 	~uv_connect_t_ex();
 };
 
-struct UvTcpClientBase : std::enable_shared_from_this<UvTcpClientBase> {
+struct UvTcpBaseClient : std::enable_shared_from_this<UvTcpBaseClient> {
 	UvLoop& loop;
 	int serial = 0;
 	std::unordered_map<int, uv_connect_t_ex*> reqs;
 	int batchNumber = 0;
-	std::shared_ptr<UvTcpPeerBase> peer;	// single holder
+	std::shared_ptr<UvTcpBasePeer> peer;	// single holder
 
-	std::function<std::shared_ptr<UvTcpPeerBase>()> OnCreatePeer;
+	std::function<std::shared_ptr<UvTcpBasePeer>()> OnCreatePeer;
 	std::function<void()> OnConnected;
 
-	UvTcpClientBase(UvLoop& loop) noexcept : loop(loop) {}
-	UvTcpClientBase(UvTcpClientBase const&) = delete;
-	UvTcpClientBase& operator=(UvTcpClientBase const&) = delete;
+	UvTcpBaseClient(UvLoop& loop) noexcept : loop(loop) {}
+	UvTcpBaseClient(UvTcpBaseClient const&) = delete;
+	UvTcpBaseClient& operator=(UvTcpBaseClient const&) = delete;
 
-	virtual ~UvTcpClientBase() {
+	virtual ~UvTcpBaseClient() {
 		Cleanup();
 	}
 
@@ -335,10 +335,10 @@ struct UvTcpClientBase : std::enable_shared_from_this<UvTcpClientBase> {
 		}
 	}
 
-	inline virtual std::shared_ptr<UvTcpPeerBase> CreatePeer() noexcept {
-		return std::make_shared<UvTcpPeerBase>();
+	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept {
+		return std::make_shared<UvTcpBasePeer>();
 	}
-	inline virtual void OnConnect(std::shared_ptr<UvTcpPeerBase> peer) noexcept {}
+	inline virtual void OnConnect(std::shared_ptr<UvTcpBasePeer> peer) noexcept {}
 };
 
 inline uv_connect_t_ex::~uv_connect_t_ex() {

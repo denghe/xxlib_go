@@ -13,8 +13,9 @@
 #undef min
 #endif
 
-// 支持 4 字节长度包头
-struct UvTcpPeer : UvTcpPeerBase {
+// 支持 4 字节长度 header 包收发
+
+struct UvTcpPackPeer : UvTcpBasePeer {
 	Buffer buf;
 	std::function<int(uint8_t const* const& buf, uint32_t const& len)> OnReceivePack;
 
@@ -40,7 +41,7 @@ struct UvTcpPeer : UvTcpPeerBase {
 
 	// reqbuf = uv_write_t_ex space + len space + data
 	// len = data's len
-	inline int SendPackCore(uint8_t* const& reqbuf, uint32_t const& len) {
+	inline int SendReqPack(uint8_t* const& reqbuf, uint32_t const& len) {
 		reqbuf[sizeof(uv_write_t_ex) + 0] = uint8_t(len);		// fill package len
 		reqbuf[sizeof(uv_write_t_ex) + 1] = uint8_t(len >> 8);
 		reqbuf[sizeof(uv_write_t_ex) + 2] = uint8_t(len >> 16);
@@ -57,19 +58,19 @@ struct UvTcpPeer : UvTcpPeerBase {
 		assert(data && len);
 		auto buf = (uint8_t*)malloc(sizeof(uv_write_t_ex) + 4 + len);
 		memcpy(buf + sizeof(uv_write_t_ex) + 4, data, len);
-		return SendPackCore(buf, len);
+		return SendReqPack(buf, len);
 	}
 };
 
-struct UvTcpListener : UvTcpListenerBase {
-	inline virtual std::shared_ptr<UvTcpPeerBase> CreatePeer() noexcept override {
-		return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpPeer>();
+struct UvTcpListener : UvTcpBaseListener {
+	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
+		return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpPackPeer>();
 	}
 };
 
-struct UvTcpClient : UvTcpClientBase {
-	using UvTcpClientBase::UvTcpClientBase;
-	inline virtual std::shared_ptr<UvTcpPeerBase> CreatePeer() noexcept override {
-		return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpPeer>();
+struct UvTcpClient : UvTcpBaseClient {
+	using UvTcpBaseClient::UvTcpBaseClient;
+	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
+		return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpPackPeer>();
 	}
 };

@@ -6,19 +6,19 @@
 
 // 支持收啥发啥的 peer
 
-struct EchoPeer : UvTcpPeerBase {
+struct EchoPeer : UvTcpBasePeer {
 	inline int Unpack(uint8_t const* const& buf, uint32_t const& len) noexcept override {
 		return Send(buf, len);
 	}
 };
 
-struct EchoListener : UvTcpListenerBase {
-	inline virtual std::shared_ptr<UvTcpPeerBase> OnCreatePeer() noexcept override {
+struct EchoListener : UvTcpBaseListener {
+	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
 		return std::make_shared<EchoPeer>();
 	}
 };
 
-struct EchoClientPeer : UvTcpPeerBase {
+struct EchoClientPeer : UvTcpBasePeer {
 	std::chrono::time_point<std::chrono::system_clock> t = std::chrono::system_clock::now();
 	int count = 0;
 	inline int Unpack(uint8_t const* const& buf, uint32_t const& len) noexcept override {
@@ -30,17 +30,17 @@ struct EchoClientPeer : UvTcpPeerBase {
 	}
 };
 
-struct EchoClient : UvTcpClientBase {
-	using UvTcpClientBase::UvTcpClientBase;
-	inline virtual std::shared_ptr<UvTcpPeerBase> OnCreatePeer() noexcept override {
+struct EchoClient : UvTcpBaseClient {
+	using UvTcpBaseClient::UvTcpBaseClient;
+	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
 		return std::make_shared<EchoClientPeer>();
 	}
-	inline virtual void OnConnect(std::shared_ptr<UvTcpPeerBase> peer) noexcept override {
-		peer->Send("a", 1);
+	inline virtual void OnConnect(std::shared_ptr<UvTcpBasePeer> peer) noexcept override {
+		peer->Send((uint8_t*)"a", 1);
 	}
 };
 
-void TestEcho() {
+void TestUvEcho() {
 	std::thread t1([] {
 		UvLoop uvloop;
 		uvloop.CreateListener<EchoListener>("0.0.0.0", 12345);
