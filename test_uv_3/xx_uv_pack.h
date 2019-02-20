@@ -62,13 +62,13 @@ struct UvTcpPackPeer : UvTcpBasePeer {
 	}
 };
 
-struct UvTcpListener : UvTcpBaseListener {
+struct UvTcpPackListener : UvTcpBaseListener {
 	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
 		return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpPackPeer>();
 	}
 };
 
-struct UvTcpClient : UvTcpBaseClient {
+struct UvTcpPackClient : UvTcpBaseClient {
 	using UvTcpBaseClient::UvTcpBaseClient;
 	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
 		return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpPackPeer>();

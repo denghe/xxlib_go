@@ -364,7 +364,7 @@ template<>
 struct BFuncs<std::string, void> {
 	static inline void WriteTo(BBuffer& bb, std::string const& in) noexcept {
 		bb.Write((uint32_t)in.size());
-		bb.Append(in.data(), (uint32_t)in.size());
+		bb.Append((uint8_t*)in.data(), (uint32_t)in.size());
 	}
 	static inline int ReadFrom(BBuffer& bb, std::string& out) noexcept {
 		uint32_t len = 0;

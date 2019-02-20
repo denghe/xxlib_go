@@ -35,7 +35,7 @@ struct EchoClient : UvTcpBaseClient {
 	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
 		return std::make_shared<EchoClientPeer>();
 	}
-	inline virtual void OnConnect(std::shared_ptr<UvTcpBasePeer> peer) noexcept override {
+	inline virtual void Connect() noexcept override {
 		peer->Send((uint8_t*)"a", 1);
 	}
 };
@@ -50,7 +50,7 @@ void TestUvEcho() {
 	std::thread t2([] {
 		UvLoop uvloop;
 		auto client = uvloop.CreateClient<EchoClient>();
-		client->Connect("127.0.0.1", 12345);
+		client->Dial("127.0.0.1", 12345);
 		uvloop.Run();
 		std::cout << "client end.";
 	});

@@ -147,10 +147,10 @@ struct UvTcpBasePeer : UvTcp {
 
 	inline virtual void Dispose(bool callback = true) noexcept {
 		if (!uvTcp) return;
+		UvHandleCloseAndFree(uvTcp);
 		if (callback && OnDisconnect) {
 			OnDisconnect();
 		}
-		UvHandleCloseAndFree(uvTcp);
 	}
 
 	inline int ReadStart() noexcept {
@@ -257,7 +257,7 @@ struct UvTcpBaseClient : std::enable_shared_from_this<UvTcpBaseClient> {
 	std::shared_ptr<UvTcpBasePeer> peer;	// single holder
 
 	std::function<std::shared_ptr<UvTcpBasePeer>()> OnCreatePeer;
-	std::function<void()> OnConnected;
+	std::function<void()> OnConnect;
 
 	UvTcpBaseClient(UvLoop& loop) noexcept : loop(loop) {}
 	UvTcpBaseClient(UvTcpBaseClient const&) = delete;
@@ -267,8 +267,17 @@ struct UvTcpBaseClient : std::enable_shared_from_this<UvTcpBaseClient> {
 		Cleanup();
 	}
 
+	inline void Cleanup(bool callback = false) {
+		peer.reset();
+		for (decltype(auto) kv : reqs) {
+			uv_cancel((uv_req_t*)kv.second);
+		}
+		reqs.clear();
+		++batchNumber;
+	}
+
 	// return errNum or serial
-	inline int Connect(std::string const& ip, int const& port, bool cleanup = true) noexcept {
+	inline int Dial(std::string const& ip, int const& port, bool cleanup = true) noexcept {
 		if (cleanup) {
 			Cleanup();
 		}
@@ -300,9 +309,7 @@ struct UvTcpBaseClient : std::enable_shared_from_this<UvTcpBaseClient> {
 
 			if (req->peer->ReadStart()) return;
 			client->peer = std::move(req->peer);								// connect success
-			if (client->OnConnected) {
-				client->OnConnected();
-			}
+			client->Connect();
 		})) {
 			delete req;
 			return -1;
@@ -313,32 +320,27 @@ struct UvTcpBaseClient : std::enable_shared_from_this<UvTcpBaseClient> {
 		}
 	}
 
-	inline void Cleanup(bool callback = false) {
-		peer.reset();
-		for (decltype(auto) kv : reqs) {
-			uv_cancel((uv_req_t*)kv.second);
-		}
-		reqs.clear();
-		++batchNumber;
-	}
-
-	inline int BatchConnect(std::vector<std::string> const& ips, int const& port) noexcept {
+	inline int Dial(std::vector<std::string> const& ips, int const& port) noexcept {
 		Cleanup();
 		for (decltype(auto) ip : ips) {
-			Connect(ip, port, false);
+			Dial(ip, port, false);
 		}
 	}
-	inline int BatchConnect(std::vector<std::pair<std::string, int>> const& ipports) noexcept {
+	inline int Dial(std::vector<std::pair<std::string, int>> const& ipports) noexcept {
 		Cleanup();
 		for (decltype(auto) ipport : ipports) {
-			Connect(ipport.first, ipport.second, false);
+			Dial(ipport.first, ipport.second, false);
 		}
 	}
 
 	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept {
 		return std::make_shared<UvTcpBasePeer>();
 	}
-	inline virtual void OnConnect(std::shared_ptr<UvTcpBasePeer> peer) noexcept {}
+	inline virtual void Connect() noexcept {
+		if (OnConnect) {
+			OnConnect();
+		}
+	}
 };
 
 inline uv_connect_t_ex::~uv_connect_t_ex() {

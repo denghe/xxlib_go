@@ -1,70 +1,41 @@
-﻿#include "xx_uv_pack.h"
-#include "xx_uv_stackless.h"
+﻿#include "xx_uv_msg.h"
+#include <unordered_set>
 #include <iostream>
 
-
 int main() {
-	UvLoopStackless loop(61);
-	struct Ctx1 {
-		std::shared_ptr<UvTcpClient> client;
-		std::shared_ptr<UvTcpPackPeer> peer;
-		std::chrono::system_clock::time_point t;
-		std::vector<Buffer> recvs;
-		int count = 0;
+	UvLoop loop;
+	std::unordered_set<std::shared_ptr<UvTcpMsgPeer>> peers;
+	auto listener = loop.CreateListener<UvTcpMsgListener>("0.0.0.0", 12345);
+	assert(listener);
+	listener->OnAccept = [&peers](std::shared_ptr<UvTcpBasePeer>&& peer_) {
+		auto peer = std::static_pointer_cast<UvTcpMsgPeer>(peer_);
+		peer->OnReceiveRequest = [peer_w = std::weak_ptr<UvTcpMsgPeer>(peer)](int const& serial, UvTcpMsgPeer::MsgType&& msg)->int {
+			return peer_w.lock()->SendResponse(serial, msg);
+		};
+		peer->OnDisconnect = [&peers, peer_w = std::weak_ptr<UvTcpMsgPeer>(peer)]{
+			peers.erase(peer_w.lock());
+		};
+		peers.insert(std::move(peer));
 	};
-	loop.Add([&, zs = std::make_shared<Ctx1>()](int const& lineNumber) {
-		COR_BEGIN
-			zs->client = loop.CreateClient<UvTcpClient>();
-		LabConnect:
-			if (++zs->count > 3) goto LabEnd;
-			std::cout << "connecting...\n";
-			zs->client->Connect("127.0.0.1", 12345);
-			zs->t = std::chrono::system_clock::now() + std::chrono::seconds(2);
-			while (!zs->client->peer) {
-				COR_YIELD
-				if (std::chrono::system_clock::now() > zs->t) {		// timeout check
-					std::cout << "timeout. retry\n";
-					goto LabConnect;
-				}
-			}
-			std::cout << "connected.\n";
-			zs->peer = std::move(std::static_pointer_cast<UvTcpPackPeer>(zs->client->peer));
-			zs->peer->OnReceivePack = [wzs = std::weak_ptr<Ctx1>(zs)](uint8_t const* const& buf, uint32_t const& len) {
-				if (auto zs = wzs.lock()) {
-					Buffer b(len);
-					b.Append(buf, len);
-					zs->recvs.push_back(std::move(b));
-				}
-				return 0;
-			};
-			zs->recvs.clear();
 
-		LabSend:
-			std::cout << "send 'asdf'\n";
-			zs->peer->SendPack((uint8_t*)"asdf", 4);
-
-			std::cout << "wait echo & check state\n";
-			while (!zs->peer->Disposed()) {
-				COR_YIELD
-				if (zs->recvs.size()) {
-					for (decltype(auto) b : zs->recvs) {
-						std::cout << std::string((char*)b.buf, b.len) << std::endl;
-					}
-					zs->recvs.clear();
-					goto LabSend;
-				}
-			}
-			std::cout << "disconnected. retry\n";
-			goto LabConnect;
-		LabEnd:;
-		COR_END
-	});
+	auto client = loop.CreateClient<UvTcpMsgClient>();
+	assert(client);
+	client->OnConnect = [client_w = std::weak_ptr<UvTcpMsgClient>(client)]{
+		auto client = client_w.lock();
+		auto msg = std::make_shared<BBuffer>();
+		msg->Write(1u, 2u, 3u, 4u, 5u);
+		std::static_pointer_cast<UvTcpMsgPeer>(client->peer)->SendRequest(msg, [](UvTcpMsgPeer::MsgType&& msg)->int {
+			if (!msg) return -1;
+			std::cout << msg->GetTypeId() << std::endl;
+			return 0;
+		});
+	};
+	client->Dial("127.0.0.1", 12345);
 	loop.Run();
 	std::cout << "end. \npress any key to continue...\n";
 	std::cin.get();
 	return 0;
 }
-
 
 
 

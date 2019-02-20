@@ -56,7 +56,7 @@ cors.Add([&, zs = std::make_shared<Ctx1>()](int const& lineNumber) {
 	LabConnect:
 		std::cout << "connecting...\n";
 		zs->client->Cleanup();
-		zs->client->Connect("127.0.0.1", 12345);
+		zs->client->Dial("127.0.0.1", 12345);
 		zs->t = std::chrono::system_clock::now() + std::chrono::seconds(5);
 		while (!zs->client->peer) {
 			return 2; case 2:;

@@ -1,12 +1,12 @@
 #pragma once
-#include "xx_uv.h"
+#include "xx_uv_pack.h"
 #include "xx_uv_stackless.h"
 #include <iostream>
 
 void TestUvStackless() {
 	UvLoopStackless loop(61);
 	struct Ctx1 {
-		std::shared_ptr<UvTcpClient> client;
+		std::shared_ptr<UvTcpPackClient> client;
 		std::shared_ptr<UvTcpPackPeer> peer;
 		std::chrono::system_clock::time_point t;
 		std::vector<Buffer> recvs;
@@ -14,11 +14,11 @@ void TestUvStackless() {
 	};
 	loop.Add([&, zs = std::make_shared<Ctx1>()](int const& lineNumber) {
 		COR_BEGIN
-			zs->client = loop.CreateClient<UvTcpClient>();
+			zs->client = loop.CreateClient<UvTcpPackClient>();
 	LabConnect:
 		if (++zs->count > 3) goto LabEnd;
 		std::cout << "connecting...\n";
-		zs->client->Connect("127.0.0.1", 12345);
+		zs->client->Dial("127.0.0.1", 12345);
 		zs->t = std::chrono::system_clock::now() + std::chrono::seconds(2);
 		while (!zs->client->peer) {
 			COR_YIELD
