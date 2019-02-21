@@ -1,42 +1,46 @@
 ﻿#include "xx_uv_msg.h"
 #include <unordered_set>
+#include <chrono>
 #include <iostream>
+#include <thread>
+
+struct MyClient : UvTcpMsgClient {
+	using UvTcpMsgClient::UvTcpMsgClient;
+	int counter = 0;
+	std::chrono::time_point<std::chrono::system_clock> t = std::chrono::system_clock::now();
+	int HandleMsg(UvTcpMsgPeer::MsgType&& msg) {
+		if (!msg) return -1;
+		//auto bb = std::dynamic_pointer_cast<BBuffer>(msg);
+		//if (!bb) return -1;
+		//std::cout << bb->GetTypeId() << std::endl;
+		//std::cout << bb->ToString() << std::endl;
+		if (++counter > 1000000) {
+			std::cout << double(std::chrono::nanoseconds(std::chrono::system_clock::now() - t).count()) / 1000000000 << std::endl;
+			return -1;
+		}
+		return Peer()->SendRequest(msg, [this](UvTcpMsgPeer::MsgType&&msg) {
+			return HandleMsg(std::move(msg));
+		}, 1000);
+	}
+};
 
 int main() {
 	UvLoop loop;
-	std::unordered_set<std::shared_ptr<UvTcpMsgPeer>> peers;
-	auto listener = loop.CreateListener<UvTcpMsgListener>("0.0.0.0", 12345);
-	assert(listener);
-	listener->OnAccept = [&peers](std::shared_ptr<UvTcpBasePeer>&& peer_) {
-		auto peer = std::static_pointer_cast<UvTcpMsgPeer>(peer_);
-		peer->OnReceiveRequest = [peer_w = std::weak_ptr<UvTcpMsgPeer>(peer)](int const& serial, UvTcpMsgPeer::MsgType&& msg)->int {
-			return peer_w.lock()->SendResponse(serial, msg);
-		};
-		peer->OnDisconnect = [&peers, peer_w = std::weak_ptr<UvTcpMsgPeer>(peer)]{
-			peers.erase(peer_w.lock());
-		};
-		peers.insert(std::move(peer));
-	};
-
-	auto client = loop.CreateClient<UvTcpMsgClient>();
+	auto client = loop.CreateClient<MyClient>();
 	assert(client);
-	client->OnConnect = [client_w = std::weak_ptr<UvTcpMsgClient>(client)]{
-		auto client = client_w.lock();
+	client->OnConnect = [client_w = std::weak_ptr<MyClient>(client)]{
 		auto msg = std::make_shared<BBuffer>();
 		msg->Write(1u, 2u, 3u, 4u, 5u);
-		std::static_pointer_cast<UvTcpMsgPeer>(client->peer)->SendRequest(msg, [](UvTcpMsgPeer::MsgType&& msg)->int {
-			if (!msg) return -1;
-			auto bb = std::dynamic_pointer_cast<BBuffer>(msg);
-			assert(bb);
-			std::cout << bb->GetTypeId() << std::endl;
-			std::cout << bb->ToString() << std::endl;
-			return 0;
-		}, 1000);
+		client_w.lock()->Peer()->SendRequest(msg, [client_w] (UvTcpMsgPeer::MsgType&&msg) {
+			return client_w.lock()->HandleMsg(std::move(msg));
+		}, 0);
 	};
-	client->Dial("127.0.0.1", 12345);
+	client->OnTimeout = [] {
+		std::cout << "dial timeout.\n";
+	};
+	client->Dial("127.0.0.1", 12345, 2000);
 	loop.Run();
-	std::cout << "end. \npress any key to continue...\n";
-	std::cin.get();
+	std::cout << "client end.\n";
 	return 0;
 }
 

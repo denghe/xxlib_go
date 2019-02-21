@@ -73,4 +73,8 @@ struct UvTcpPackClient : UvTcpBaseClient {
 	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
 		return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpPackPeer>();
 	}
+
+	inline std::shared_ptr<UvTcpPackPeer> Peer() noexcept {
+		return std::static_pointer_cast<UvTcpPackPeer>(peer);
+	}
 };

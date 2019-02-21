@@ -52,11 +52,12 @@ struct Buffer {
 	}
 
 	inline void RemoveFront(uint32_t const& len) {
+		assert(len <= this->len);
 		if (!len) return;
-		if (len < this->len) {
-			memmove(buf, buf + len, this->len - len);
-		}
 		this->len -= len;
+		if (this->len) {
+			memmove(buf, buf + len, this->len);
+		}
 	}
 
 	inline uint8_t operator[](uint32_t const& idx) const noexcept {

@@ -11,7 +11,7 @@
 #include <vector>
 
 // 重要：
-// std::function 的捕获列表不可以随意增加引用以导致无法析构, 尽量使用 weak_ptr. 除非该对象仅依附于 std::function
+// std::function 的捕获列表不可以随意增加引用以导致无法析构, 使用 weak_ptr.
 
 #ifndef _offsetof
 #define _offsetof(s,m) ((size_t)&reinterpret_cast<char const volatile&>((((s*)0)->m)))
@@ -72,6 +72,7 @@ struct UvLoop {
 	std::shared_ptr<TimerType> CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire = nullptr) noexcept;
 };
 
+// todo: dns resolver
 // todo: async
 
 struct UvTimer {
@@ -254,10 +255,12 @@ struct UvTcpBaseClient : std::enable_shared_from_this<UvTcpBaseClient> {
 	int serial = 0;
 	std::unordered_map<int, uv_connect_t_ex*> reqs;
 	int batchNumber = 0;
-	std::shared_ptr<UvTcpBasePeer> peer;	// single holder
+	std::shared_ptr<UvTimer> timeouter;		// singleton holder
+	std::shared_ptr<UvTcpBasePeer> peer;	// singleton holder
 
 	std::function<std::shared_ptr<UvTcpBasePeer>()> OnCreatePeer;
 	std::function<void()> OnConnect;
+	std::function<void()> OnTimeout;
 
 	UvTcpBaseClient(UvLoop& loop) noexcept : loop(loop) {}
 	UvTcpBaseClient(UvTcpBaseClient const&) = delete;
@@ -267,8 +270,11 @@ struct UvTcpBaseClient : std::enable_shared_from_this<UvTcpBaseClient> {
 		Cleanup();
 	}
 
-	inline void Cleanup(bool callback = false) {
-		peer.reset();
+	inline void Cleanup(bool resetPeer = true) {
+		timeouter.reset();
+		if (resetPeer) {
+			peer.reset();
+		}
 		for (decltype(auto) kv : reqs) {
 			uv_cancel((uv_req_t*)kv.second);
 		}
@@ -276,8 +282,21 @@ struct UvTcpBaseClient : std::enable_shared_from_this<UvTcpBaseClient> {
 		++batchNumber;
 	}
 
+	inline int SetTimeout(uint64_t const& timeoutMS = 0) {
+		if (!timeoutMS) return 0;
+		timeouter = loop.CreateTimer<UvTimer>(timeoutMS, 0, [self_w = std::weak_ptr<UvTcpBaseClient>(shared_from_this())] {
+			if (auto self = self_w.lock()) {
+				self->Cleanup(false);
+				if (!self->peer && self->OnTimeout) {
+					self->OnTimeout();
+				}
+			}
+		});
+		return timeouter ? 0 : -1;
+	}
+
 	// return errNum or serial
-	inline int Dial(std::string const& ip, int const& port, bool cleanup = true) noexcept {
+	inline int Dial(std::string const& ip, int const& port, uint64_t const& timeoutMS = 0, bool cleanup = true) noexcept {
 		if (cleanup) {
 			Cleanup();
 		}
@@ -290,11 +309,12 @@ struct UvTcpBaseClient : std::enable_shared_from_this<UvTcpBaseClient> {
 			if (int r = uv_ip6_addr(ip.c_str(), port, &addr)) return r;
 		}
 
-		auto peer = CreatePeer();
-		if (peer->Init(&loop.uvLoop)) return -1;
+		if (int r = SetTimeout(timeoutMS)) return r;
 
-		auto req = new uv_connect_t_ex();
-		req->peer = std::move(peer);
+		auto req = std::make_unique<uv_connect_t_ex>();
+		req->peer = CreatePeer();
+		if (req->peer->Init(&loop.uvLoop)) return -2;
+
 		req->client_w = shared_from_this();
 		req->serial = ++serial;
 		req->batchNumber = batchNumber;
@@ -310,26 +330,24 @@ struct UvTcpBaseClient : std::enable_shared_from_this<UvTcpBaseClient> {
 			if (req->peer->ReadStart()) return;
 			client->peer = std::move(req->peer);								// connect success
 			client->Connect();
-		})) {
-			delete req;
-			return -1;
-		}
-		else {
-			reqs[serial] = req;
-			return serial;
-		}
+		})) return -3;
+
+		reqs[serial] = req.release();
+		return serial;
 	}
 
-	inline int Dial(std::vector<std::string> const& ips, int const& port) noexcept {
+	inline int Dial(std::vector<std::string> const& ips, int const& port, uint64_t const& timeoutMS = 0) noexcept {
 		Cleanup();
+		if (int r = SetTimeout(timeoutMS)) return r;
 		for (decltype(auto) ip : ips) {
-			Dial(ip, port, false);
+			Dial(ip, port, 0, false);
 		}
 	}
-	inline int Dial(std::vector<std::pair<std::string, int>> const& ipports) noexcept {
+	inline int Dial(std::vector<std::pair<std::string, int>> const& ipports, uint64_t const& timeoutMS = 0) noexcept {
 		Cleanup();
+		if (int r = SetTimeout(timeoutMS)) return r;
 		for (decltype(auto) ipport : ipports) {
-			Dial(ipport.first, ipport.second, false);
+			Dial(ipport.first, ipport.second, 0, false);
 		}
 	}
 

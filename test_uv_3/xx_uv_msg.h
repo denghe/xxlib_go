@@ -72,7 +72,7 @@ struct UvTcpMsgPeer : UvTcpPackPeer, std::enable_shared_from_this<UvTcpMsgPeer> 
 		if (int r = SendMessage(msg, -serial)) return r;
 		v.first = std::move(cb);
 		callbacks[serial] = std::move(v);
-		return serial;
+		return 0;
 	}
 
 	inline void TimeoutCallback(int const& serial) {
@@ -92,9 +92,9 @@ struct UvTcpMsgPeer : UvTcpPackPeer, std::enable_shared_from_this<UvTcpMsgPeer> 
 		else {
 			auto iter = callbacks.find(serial);
 			if (iter == callbacks.end()) return 0;
-			auto cb = std::move(iter->second.first);
+			int r = iter->second.first(std::move(msg));
 			callbacks.erase(iter);
-			return cb(std::move(msg));
+			return r;
 		}
 	}
 
@@ -117,5 +117,9 @@ struct UvTcpMsgClient : UvTcpBaseClient {
 	using UvTcpBaseClient::UvTcpBaseClient;
 	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
 		return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpMsgPeer>();
+	}
+
+	inline std::shared_ptr<UvTcpMsgPeer> Peer() noexcept {
+		return std::static_pointer_cast<UvTcpMsgPeer>(peer);
 	}
 };
