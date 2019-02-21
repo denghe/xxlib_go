@@ -26,9 +26,12 @@ int main() {
 		msg->Write(1u, 2u, 3u, 4u, 5u);
 		std::static_pointer_cast<UvTcpMsgPeer>(client->peer)->SendRequest(msg, [](UvTcpMsgPeer::MsgType&& msg)->int {
 			if (!msg) return -1;
-			std::cout << msg->GetTypeId() << std::endl;
+			auto bb = std::dynamic_pointer_cast<BBuffer>(msg);
+			assert(bb);
+			std::cout << bb->GetTypeId() << std::endl;
+			std::cout << bb->ToString() << std::endl;
 			return 0;
-		});
+		}, 1000);
 	};
 	client->Dial("127.0.0.1", 12345);
 	loop.Run();

@@ -75,15 +75,13 @@ struct BBuffer : Buffer, BObject {
 
 	template<typename T>
 	void WriteRoot(std::shared_ptr<T> const& v) noexcept {
-		ptrs.clear();
 		offsetRoot = len;
 		Write(v);
+		ptrs.clear();
 	}
 
 	template<typename T>
 	int ReadRoot(std::shared_ptr<T>& v) noexcept {
-		idxs.clear();
-		idxs1.clear();
 		offsetRoot = offset;
 		int r = Read(v);
 		idxs.clear();
@@ -152,7 +150,13 @@ struct BBuffer : Buffer, BObject {
 				if (auto r = Read(*v)) return r;
 			}
 			else {
-				auto o = CreateByTypeId(typeId);
+				std::shared_ptr<BObject> o;
+				if (typeId == 2) {
+					o = std::make_shared<BBuffer>();
+				}
+				else {
+					o = CreateByTypeId(typeId);
+				}
 				v = std::dynamic_pointer_cast<T>(o);
 				if (!v) return -4;
 				idxs[ptrOffset] = o;

@@ -8,12 +8,12 @@
 #undef SendMessage
 #endif
 
-struct UvTcpMsgPeer : UvTcpPackPeer {
-	BBuffer recvBB;												// replace buf memory for decode message
+struct UvTcpMsgPeer : UvTcpPackPeer, std::enable_shared_from_this<UvTcpMsgPeer> {
+	BBuffer recvBB;			// for replace buf memory decode message
 	BBuffer sendBB;
 	int serial = 0;
 	using MsgType = std::shared_ptr<BObject>;
-	std::unordered_map<int, std::function<int(MsgType&& msg)>> callbacks;
+	std::unordered_map<int, std::pair<std::function<int(MsgType&& msg)>, std::shared_ptr<UvTimer>>> callbacks;
 	std::function<int(MsgType&& msg)> OnReceivePush;
 	std::function<int(int const& serial, MsgType&& msg)> OnReceiveRequest;
 
@@ -59,15 +59,27 @@ struct UvTcpMsgPeer : UvTcpPackPeer {
 		return SendMessage(msg, serial);
 	}
 
-	inline int SendRequest(MsgType const& msg, std::function<int(MsgType&& msg)>&& cb) {
+	inline int SendRequest(MsgType const& msg, std::function<int(MsgType&& msg)>&& cb, uint64_t const& timeoutMS = 0) {
 		if (Disposed()) return -1;
-		callbacks[++serial] = std::move(cb);
-		SendMessage(msg, -serial);
+		std::pair<std::function<int(MsgType&& msg)>, std::shared_ptr<UvTimer>> v;
+		++serial;
+		if (timeoutMS) {
+			v.second = container_of(uvTcp->loop, UvLoop, uvLoop)->CreateTimer(timeoutMS, 0, [this, serial = this->serial]() {
+				TimeoutCallback(serial);
+			});
+			if (!v.second) return -1;
+		}
+		if (int r = SendMessage(msg, -serial)) return r;
+		v.first = std::move(cb);
+		callbacks[serial] = std::move(v);
 		return serial;
 	}
 
-	inline int RemoveCallback(int const& serial) {
-		callbacks.erase(serial);
+	inline void TimeoutCallback(int const& serial) {
+		auto iter = callbacks.find(serial);
+		if (iter == callbacks.end()) return;
+		iter->second.first(nullptr);
+		callbacks.erase(iter);
 	}
 
 	inline virtual int ReceiveMessage(MsgType&& msg, int const& serial) {
@@ -80,7 +92,7 @@ struct UvTcpMsgPeer : UvTcpPackPeer {
 		else {
 			auto iter = callbacks.find(serial);
 			if (iter == callbacks.end()) return 0;
-			auto cb = std::move(iter->second);
+			auto cb = std::move(iter->second.first);
 			callbacks.erase(iter);
 			return cb(std::move(msg));
 		}
@@ -88,7 +100,7 @@ struct UvTcpMsgPeer : UvTcpPackPeer {
 
 	inline virtual void Dispose(bool callback) noexcept override {
 		for (decltype(auto) kv : callbacks) {
-			kv.second(nullptr);
+			kv.second.first(nullptr);
 		}
 		callbacks.clear();
 		this->UvTcpPackPeer::Dispose(callback);
