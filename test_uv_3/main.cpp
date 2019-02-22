@@ -47,6 +47,7 @@ int RunServer() {
 
 int main() {
 	std::thread t1([] { RunServer(); });
+	std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
 	UvLoop loop;
 	auto client = loop.CreateClient<MyClient>();
