@@ -4,6 +4,7 @@
 #include <initializer_list>
 #include <unordered_map>
 #include <array>
+#include <algorithm>
 
 struct BBuffer;
 
