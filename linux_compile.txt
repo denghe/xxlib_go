@@ -1,1 +1,2 @@
-g++ -O2 -pthread -std=c++17 -luv -L../libuv -I../libuv/include main.cpp -o main
+cd test_uv_???
+../compile.sh
