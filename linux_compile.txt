@@ -1,17 +1,1 @@
-libuv, xxlib_go 两个 git 项目目录在一起
-
-libuv:
-
-确保有 python
-
-创建 build 目录并进入，
-git clone https://chromium.googlesource.com/external/gyp
-
-./gyp_uv.py -f make
-BUILDTYPE=Release make -C out
-
-xxlib_go test uv:
-进入到 2 级项目目录后:
-g++ main.cpp -o client -luv -L../../libuv/out/Release -O2 -I../../libuv/include -pthread
-
-
+g++ -O2 -pthread -std=c++17 -luv -L../libuv -I../libuv/include main.cpp -o main
