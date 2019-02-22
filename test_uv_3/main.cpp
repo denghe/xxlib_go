@@ -14,7 +14,7 @@ struct MyClient : UvTcpMsgClient {
 		//if (!bb) return -1;
 		//std::cout << bb->GetTypeId() << std::endl;
 		//std::cout << bb->ToString() << std::endl;
-		if (++counter > 1000000) {
+		if (++counter > 100000) {
 			std::cout << double(std::chrono::nanoseconds(std::chrono::system_clock::now() - t).count()) / 1000000000 << std::endl;
 			return -1;
 		}
