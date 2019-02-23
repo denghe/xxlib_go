@@ -42,6 +42,9 @@ void Sleep(Yield& yield, std::chrono::system_clock::time_point const& t) {
 		yield();
 	}
 }
+void Sleep(Yield& yield, std::chrono::seconds const& duration) {
+	Sleep(yield, std::chrono::system_clock::now() + duration);
+}
 
 /*
 Coroutines cors;

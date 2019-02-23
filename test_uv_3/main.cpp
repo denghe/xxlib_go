@@ -25,7 +25,7 @@ struct MyClient : UvTcpMsgClient {
 };
 
 
-int RunServer() {
+void RunServer() {
 	UvLoop loop;
 	std::unordered_set<std::shared_ptr<UvTcpMsgPeer>> peers;
 	auto listener = loop.CreateListener<UvTcpMsgListener>("0.0.0.0", 12345);

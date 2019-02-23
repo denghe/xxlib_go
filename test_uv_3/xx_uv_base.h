@@ -9,6 +9,8 @@
 #include <functional>
 #include <cassert>
 #include <vector>
+#include <deque>
+#include <mutex>
 
 // 重要：
 // std::function 的捕获列表不可以随意增加引用以导致无法析构, 使用 weak_ptr.
@@ -49,6 +51,8 @@ void UvHandleCloseAndFree(T*& tar) noexcept {
 }
 
 struct UvTimer;
+struct UvResolver;
+struct UvAsync;
 
 struct UvLoop {
 	uv_loop_t uvLoop;
@@ -68,16 +72,64 @@ struct UvLoop {
 	template<typename ClientType>
 	std::shared_ptr<ClientType> CreateClient() noexcept;
 
+	std::shared_ptr<UvResolver> CreateResolver() noexcept;
+
+	std::shared_ptr<UvAsync> CreateAsync() noexcept;
+
 	template<typename TimerType = UvTimer>
 	std::shared_ptr<TimerType> CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire = nullptr) noexcept;
 };
 
-// todo: dns resolver
-// todo: async
+struct UvAsync {
+	std::mutex mtx;
+	std::deque<std::function<void()>> actions;
+	std::function<void()> action;
+	uv_async_t* uvAsync = nullptr;
+
+	UvAsync() = default;
+	UvAsync(UvAsync const&) = delete;
+	UvAsync& operator=(UvAsync const&) = delete;
+
+	virtual ~UvAsync() {
+		UvHandleCloseAndFree(uvAsync);
+	}
+	inline int Init(uv_loop_t* const& loop) noexcept {
+		if (uvAsync) return 0;
+		uvAsync = UvAlloc<uv_async_t>(this);
+		if (!uvAsync) return -1;
+		if (int r = uv_async_init(loop, uvAsync, [](uv_async_t* handle) {
+			UvGetSelf<UvAsync>(handle)->Execute();
+		})) {
+			uvAsync = nullptr;
+			return r;
+		}
+		return 0;
+	}
+	int Dispatch(std::function<void()>&& action) noexcept {
+		if (!uvAsync) return -1;
+		{
+			std::scoped_lock<std::mutex> g(mtx);
+			actions.push_back(std::move(action));
+		}
+		return uv_async_send(uvAsync);
+	}
+	inline void Execute() noexcept {
+		{
+			std::scoped_lock<std::mutex> g(mtx);
+			action = std::move(actions.front());
+			actions.pop_front();
+		}
+		action();
+	}
+};
 
 struct UvTimer {
 	uv_timer_t* uvTimer = nullptr;
 	std::function<void()> OnFire;
+
+	UvTimer() = default;
+	UvTimer(UvTimer const&) = delete;
+	UvTimer& operator=(UvTimer const&) = delete;
 
 	virtual ~UvTimer() {
 		UvHandleCloseAndFree(uvTimer);
@@ -110,6 +162,114 @@ struct UvTimer {
 		return uv_timer_again(uvTimer);
 	}
 };
+
+struct UvResolver;
+struct uv_getaddrinfo_t_ex {
+	uv_getaddrinfo_t req;
+	std::weak_ptr<UvResolver> resolver_w;
+};
+
+struct UvResolver : std::enable_shared_from_this<UvResolver> {
+	UvLoop& loop;
+	uv_getaddrinfo_t_ex* req = nullptr;
+	std::shared_ptr<UvTimer> timeouter;
+	std::vector<std::string> ips;
+	std::function<void()> OnFinish;
+	std::function<void()> OnTimeout;
+#ifdef __IPHONE_OS_VERSION_MIN_REQUIRED
+	addrinfo hints;
+#endif
+
+	UvResolver(UvLoop& loop) noexcept
+		: loop(loop) {
+#ifdef __IPHONE_OS_VERSION_MIN_REQUIRED
+		hints.ai_family = PF_UNSPEC;
+		hints.ai_socktype = SOCK_STREAM;
+		hints.ai_protocol = 0;// IPPROTO_TCP;
+		hints.ai_flags = AI_DEFAULT;
+#endif
+	}
+
+	UvResolver(UvResolver const&) = delete;
+	UvResolver& operator=(UvResolver const&) = delete;
+
+	virtual ~UvResolver() {
+		Cleanup();
+	}
+
+	inline void Cleanup() {
+		ips.clear();
+		timeouter.reset();
+		if (req) {
+			uv_cancel((uv_req_t*)req);
+			req = nullptr;
+		}
+	}
+
+	inline int SetTimeout(uint64_t const& timeoutMS = 0) {
+		if (!timeoutMS) return 0;
+		timeouter = loop.CreateTimer<UvTimer>(timeoutMS, 0, [self_w = std::weak_ptr<UvResolver>(shared_from_this())]{
+			if (auto self = self_w.lock()) {
+				self->Cleanup();
+				if (self->OnTimeout) {
+					self->OnTimeout();
+				}
+			}
+			});
+		return timeouter ? 0 : -1;
+	}
+
+	inline int Resolve(std::string const& domainName, uint64_t const& timeoutMS = 0) noexcept {
+		if (int r = SetTimeout(timeoutMS)) return r;
+
+		auto req = std::make_unique<uv_getaddrinfo_t_ex>();
+		req->resolver_w = shared_from_this();
+		if (int r = uv_getaddrinfo((uv_loop_t*)&loop.uvLoop, (uv_getaddrinfo_t*)&req->req, [](uv_getaddrinfo_t* req_, int status, struct addrinfo* ai) {
+			auto req = std::unique_ptr<uv_getaddrinfo_t_ex>(container_of(req_, uv_getaddrinfo_t_ex, req));
+			auto resolver = req->resolver_w.lock();
+			if (!resolver) return;
+			if (status) return;													// error or -4081 canceled
+			assert(ai);
+
+			auto& ips = resolver->ips;
+			std::string s;
+			do {
+				s.resize(64);
+				if (ai->ai_addr->sa_family == AF_INET6) {
+					uv_ip6_name((sockaddr_in6*)ai->ai_addr, s.data(), s.size());
+				}
+				else {
+					uv_ip4_name((sockaddr_in*)ai->ai_addr, s.data(), s.size());
+				}
+				s.resize(strlen(s.data()));
+
+				if (std::find(ips.begin(), ips.end(), s) == ips.end()) {
+					ips.push_back(std::move(s));								// known issue: ios || android will receive duplicate result
+				}
+				ai = ai->ai_next;
+			} while (ai);
+			uv_freeaddrinfo(ai);
+
+			resolver->timeouter.reset();
+			resolver->Finish();
+
+		}, domainName.c_str(), nullptr,
+#ifdef __IPHONE_OS_VERSION_MIN_REQUIRED
+		(const addrinfo*)hints
+#else
+			nullptr
+#endif
+			)) return r;
+		this->req = req.release();
+		return 0;
+	}
+
+	inline virtual void Finish() noexcept {
+		if (OnFinish) {
+			OnFinish();
+		}
+	}
+	};
 
 struct UvTcp {
 	uv_tcp_t* uvTcp = nullptr;
@@ -173,7 +333,7 @@ struct UvTcpBasePeer : UvTcp {
 
 	inline int Send(uv_write_t_ex* const& req) noexcept {
 		if (!uvTcp) return -1;
-		// todo: check send queue len ? protect?
+		// todo: check send queue len ? protect?  uv_stream_get_write_queue_size((uv_stream_t*)uvTcp);
 		int r = uv_write(req, (uv_stream_t*)uvTcp, &req->buf, 1, [](uv_write_t *req, int status) {
 			free(req);
 		});
@@ -284,18 +444,17 @@ struct UvTcpBaseClient : std::enable_shared_from_this<UvTcpBaseClient> {
 
 	inline int SetTimeout(uint64_t const& timeoutMS = 0) {
 		if (!timeoutMS) return 0;
-		timeouter = loop.CreateTimer<UvTimer>(timeoutMS, 0, [self_w = std::weak_ptr<UvTcpBaseClient>(shared_from_this())] {
+		timeouter = loop.CreateTimer<UvTimer>(timeoutMS, 0, [self_w = std::weak_ptr<UvTcpBaseClient>(shared_from_this())]{
 			if (auto self = self_w.lock()) {
 				self->Cleanup(false);
 				if (!self->peer && self->OnTimeout) {
 					self->OnTimeout();
 				}
 			}
-		});
+			});
 		return timeouter ? 0 : -1;
 	}
 
-	// return errNum or serial
 	inline int Dial(std::string const& ip, int const& port, uint64_t const& timeoutMS = 0, bool cleanup = true) noexcept {
 		if (cleanup) {
 			Cleanup();
@@ -329,11 +488,12 @@ struct UvTcpBaseClient : std::enable_shared_from_this<UvTcpBaseClient> {
 
 			if (req->peer->ReadStart()) return;
 			client->peer = std::move(req->peer);								// connect success
+			client->timeouter.reset();
 			client->Connect();
 		})) return -3;
 
 		reqs[serial] = req.release();
-		return serial;
+		return 0;
 	}
 
 	inline int Dial(std::vector<std::string> const& ips, int const& port, uint64_t const& timeoutMS = 0) noexcept {
@@ -370,6 +530,16 @@ inline uv_connect_t_ex::~uv_connect_t_ex() {
 template<typename ClientType>
 inline std::shared_ptr<ClientType> UvLoop::CreateClient() noexcept {
 	return std::make_shared<ClientType>(*this);
+}
+
+inline std::shared_ptr<UvResolver> UvLoop::CreateResolver() noexcept {
+	return std::make_shared<UvResolver>(*this);
+}
+
+inline std::shared_ptr<UvAsync> UvLoop::CreateAsync() noexcept {
+	auto async = std::make_shared<UvAsync>();
+	if (async->Init(&uvLoop)) return nullptr;
+	return async;
 }
 
 template<typename TimerType>
