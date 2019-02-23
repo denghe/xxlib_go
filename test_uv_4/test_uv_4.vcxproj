@@ -84,6 +84,39 @@
   <ItemGroup>
     <ClCompile Include="main.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="fixed_function.hpp" />
+    <ClInclude Include="xx.h" />
+    <ClInclude Include="xx_bbuffer.h" />
+    <ClInclude Include="xx_bbuffer.hpp" />
+    <ClInclude Include="xx_bytesutils.h" />
+    <ClInclude Include="xx_bytesutils.hpp" />
+    <ClInclude Include="xx_charsutils.h" />
+    <ClInclude Include="xx_charsutils.hpp" />
+    <ClInclude Include="xx_dict.h" />
+    <ClInclude Include="xx_dict.hpp" />
+    <ClInclude Include="xx_dictex.h" />
+    <ClInclude Include="xx_guid.h" />
+    <ClInclude Include="xx_guid.hpp" />
+    <ClInclude Include="xx_hashset.h" />
+    <ClInclude Include="xx_hashset.hpp" />
+    <ClInclude Include="xx_hashutils.h" />
+    <ClInclude Include="xx_hashutils.hpp" />
+    <ClInclude Include="xx_list.h" />
+    <ClInclude Include="xx_list.hpp" />
+    <ClInclude Include="xx_mempool.h" />
+    <ClInclude Include="xx_mempool.hpp" />
+    <ClInclude Include="xx_queue.h" />
+    <ClInclude Include="xx_queue.hpp" />
+    <ClInclude Include="xx_random.h" />
+    <ClInclude Include="xx_random.hpp" />
+    <ClInclude Include="xx_string.h" />
+    <ClInclude Include="xx_string.hpp" />
+    <ClInclude Include="xx_uv.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Natvis Include="xx.natvis" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
