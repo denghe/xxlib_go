@@ -1,7 +1,4 @@
 #pragma once
-#include <string.h>
-#include <assert.h>
-#include <type_traits>
 #include "xx_object.h"
 
 namespace xx

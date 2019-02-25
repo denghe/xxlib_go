@@ -1,29 +1,9 @@
 ﻿#pragma once
 #include "uv.h"
-#include <stdint.h>
-#include <cstdlib>
-#include <cstring>
-#include <string>
-#include <memory>
-#include <unordered_map>
-#include <functional>
-#include <cassert>
-#include <vector>
-#include <deque>
-#include <mutex>
 #include "xx_bbuffer.h"
 
 // 重要：
 // std::function 的捕获列表不可以随意增加引用以导致无法析构, 使用 weak_ptr.
-
-#ifndef _offsetof
-#define _offsetof(s,m) ((size_t)&reinterpret_cast<char const volatile&>((((s*)0)->m)))
-#endif
-
-#ifndef container_of
-#define container_of(ptr, type, member) \
-  ((type *) ((char *) (ptr) - _offsetof(type, member)))
-#endif
 
 #ifdef SendMessage
 #undef SendMessage
@@ -60,6 +40,8 @@ namespace xx {
 	struct UvTimer;
 	struct UvResolver;
 	struct UvAsync;
+	struct UvTcpListener;
+	struct UvTcpClient;
 
 	struct UvLoop {
 		uv_loop_t uvLoop;
@@ -73,17 +55,16 @@ namespace xx {
 			return uv_run(&uvLoop, mode);
 		}
 
-		template<typename ListenerType>
-		std::shared_ptr<ListenerType> CreateListener(std::string const& ip, int const& port, int const& backlog = 128) noexcept;
-
-		template<typename ClientType>
-		std::shared_ptr<ClientType> CreateClient() noexcept;
-
 		std::shared_ptr<UvResolver> CreateResolver() noexcept;
-
 		std::shared_ptr<UvAsync> CreateAsync() noexcept;
 
-		template<typename TimerType = UvTimer>
+		template<typename ListenerType = UvTcpListener, typename ENABLED = std::enable_if_t<std::is_base_of_v<UvTcpListener, ListenerType>>>
+		std::shared_ptr<ListenerType> CreateListener(std::string const& ip, int const& port, int const& backlog = 128) noexcept;
+
+		template<typename ClientType = UvTcpClient, typename ENABLED = std::enable_if_t<std::is_base_of_v<UvTcpClient, ClientType>>>
+		std::shared_ptr<ClientType> CreateClient() noexcept;
+
+		template<typename TimerType = UvTimer, typename ENABLED = std::enable_if_t<std::is_base_of_v<UvTimer, TimerType>>>
 		std::shared_ptr<TimerType> CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire = nullptr) noexcept;
 	};
 
@@ -300,32 +281,19 @@ namespace xx {
 		}
 	};
 
-	struct UvTcpPeer;
 	struct uv_write_t_ex : uv_write_t {
 		uv_buf_t buf;
 	};
 
-	struct UvTcpPeer : UvTcp {
-		Buffer buf;
-		BBuffer recvBB;			// for replace buf memory decode message
-		BBuffer sendBB;
-		int serial = 0;
-		using MsgType = std::shared_ptr<Object>;
-		std::unordered_map<int, std::pair<std::function<int(MsgType&& msg)>, std::shared_ptr<UvTimer>>> callbacks;
-		std::function<int(MsgType&& msg)> OnReceivePush;
-		std::function<int(int const& serial, MsgType&& msg)> OnReceiveRequest;
+	struct UvTcpBasePeer : UvTcp {
 		std::function<void()> OnDisconnect;
 
-		UvTcpPeer() = default;
-		UvTcpPeer(UvTcpPeer const&) = delete;
-		UvTcpPeer& operator=(UvTcpPeer const&) = delete;
+		UvTcpBasePeer() = default;
+		UvTcpBasePeer(UvTcpBasePeer const&) = delete;
+		UvTcpBasePeer& operator=(UvTcpBasePeer const&) = delete;
 
 		inline virtual void Dispose(bool callback = true) noexcept {
 			if (!uvTcp) return;
-			for (decltype(auto) kv : callbacks) {
-				kv.second.first(nullptr);
-			}
-			callbacks.clear();
 			UvHandleCloseAndFree(uvTcp);
 			if (callback && OnDisconnect) {
 				OnDisconnect();
@@ -338,7 +306,7 @@ namespace xx {
 				buf->base = (char*)malloc(suggested_size);
 				buf->len = decltype(uv_buf_t::len)(suggested_size);
 			}, [](uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
-				auto self = UvGetSelf<UvTcpPeer>(stream);
+				auto self = UvGetSelf<UvTcpBasePeer>(stream);
 				if (nread > 0) {
 					nread = self->Unpack((uint8_t*)buf->base, (uint32_t)nread);
 				}
@@ -348,6 +316,8 @@ namespace xx {
 				}
 			});
 		}
+
+		virtual int Unpack(uint8_t const* const& recvBuf, uint32_t const& recvLen) noexcept = 0;
 
 		inline int Send(uv_write_t_ex* const& req) noexcept {
 			if (!uvTcp) return -1;
@@ -367,27 +337,29 @@ namespace xx {
 			req->buf.len = decltype(uv_buf_t::len)(dataLen);
 			return Send(req);
 		}
+	};
 
-		// reqbuf = uv_write_t_ex space + len space + data
-		// len = data's len
-		inline int SendReqPack(uint8_t* const& reqbuf, uint32_t const& len) {
-			reqbuf[sizeof(uv_write_t_ex) + 0] = uint8_t(len);		// fill package len
-			reqbuf[sizeof(uv_write_t_ex) + 1] = uint8_t(len >> 8);
-			reqbuf[sizeof(uv_write_t_ex) + 2] = uint8_t(len >> 16);
-			reqbuf[sizeof(uv_write_t_ex) + 3] = uint8_t(len >> 24);
+	struct UvTcpPeer : UvTcpBasePeer {
+		Buffer buf;
+		BBuffer recvBB;			// for replace buf memory decode message
+		BBuffer sendBB;
+		int serial = 0;
+		std::unordered_map<int, std::pair<std::function<int(Object_s&& msg)>, std::shared_ptr<UvTimer>>> callbacks;
+		std::function<int(Object_s&& msg)> OnReceivePush;
+		std::function<int(int const& serial, Object_s&& msg)> OnReceiveRequest;
+		std::function<void()> OnDisconnect;
 
-			auto req = (uv_write_t_ex*)reqbuf;						// fill req args
-			req->buf.base = (char*)(req + 1);
-			req->buf.len = decltype(uv_buf_t::len)(len + 4);
-			return Send(req);
-		}
+		UvTcpPeer() = default;
+		UvTcpPeer(UvTcpPeer const&) = delete;
+		UvTcpPeer& operator=(UvTcpPeer const&) = delete;
 
-		// slow. more memcpy than SendPackCore
-		inline int SendPack(uint8_t* const& data, uint32_t const& len) {
-			assert(data && len);
-			auto buf = (uint8_t*)malloc(sizeof(uv_write_t_ex) + 4 + len);
-			memcpy(buf + sizeof(uv_write_t_ex) + 4, data, len);
-			return SendReqPack(buf, len);
+		inline virtual void Dispose(bool callback = true) noexcept override {
+			if (!uvTcp) return;
+			for (decltype(auto) kv : callbacks) {
+				kv.second.first(nullptr);
+			}
+			callbacks.clear();
+			this->UvTcpBasePeer::Dispose(callback);
 		}
 
 		virtual int Unpack(uint8_t const* const& recvBuf, uint32_t const& recvLen) noexcept {
@@ -412,7 +384,7 @@ namespace xx {
 			recvBB.cap = recvLen;
 			recvBB.offset = 0;
 
-			MsgType msg;
+			Object_s msg;
 			int serial = 0;
 			int r = recvBB.Read(serial);
 			if (!r) {
@@ -420,11 +392,24 @@ namespace xx {
 			}
 			recvBB.buf = nullptr;
 			if (r) return r;
-			return ReceiveMessage(std::move(msg), serial);
+
+			if (serial == 0) {
+				return OnReceivePush ? OnReceivePush(std::move(msg)) : 0;
+			}
+			else if (serial < 0) {
+				return OnReceiveRequest ? OnReceiveRequest(-serial, std::move(msg)) : 0;
+			}
+			else {
+				auto iter = callbacks.find(serial);
+				if (iter == callbacks.end()) return 0;
+				int r = iter->second.first(std::move(msg));
+				callbacks.erase(iter);
+				return r;
+			}
 		}
 
 		// serial == 0: push    > 0: response    < 0: request
-		inline int SendMessage(MsgType const& msg, int32_t const& serial = 0) {
+		inline int SendMessage(Object_s const& msg, int32_t const& serial = 0) {
 			if (Disposed()) return -1;
 			sendBB.Reserve(sizeof(uv_write_t_ex) + 4);				// skip uv_write_t_ex + header space
 			sendBB.len = sizeof(uv_write_t_ex) + 4;
@@ -437,20 +422,28 @@ namespace xx {
 			sendBB.len = 0;
 			sendBB.cap = 0;
 
-			return SendReqPack(buf, (uint32_t)len);
+			buf[sizeof(uv_write_t_ex) + 0] = uint8_t(len);			// fill package len
+			buf[sizeof(uv_write_t_ex) + 1] = uint8_t(len >> 8);
+			buf[sizeof(uv_write_t_ex) + 2] = uint8_t(len >> 16);
+			buf[sizeof(uv_write_t_ex) + 3] = uint8_t(len >> 24);
+
+			auto req = (uv_write_t_ex*)buf;							// fill req args
+			req->buf.base = (char*)(req + 1);
+			req->buf.len = decltype(uv_buf_t::len)(len + 4);
+			return Send(req);
 		}
 
-		inline int SendPush(MsgType const& msg) {
+		inline int SendPush(Object_s const& msg) {
 			return SendMessage(msg);
 		}
 
-		inline int SendResponse(int32_t const& serial, MsgType const& msg) {
+		inline int SendResponse(int32_t const& serial, Object_s const& msg) {
 			return SendMessage(msg, serial);
 		}
 
-		inline int SendRequest(MsgType const& msg, std::function<int(MsgType&& msg)>&& cb, uint64_t const& timeoutMS = 0) {
+		inline int SendRequest(Object_s const& msg, std::function<int(Object_s&& msg)>&& cb, uint64_t const& timeoutMS = 0) {
 			if (Disposed()) return -1;
-			std::pair<std::function<int(MsgType&& msg)>, std::shared_ptr<UvTimer>> v;
+			std::pair<std::function<int(Object_s&& msg)>, std::shared_ptr<UvTimer>> v;
 			++serial;
 			if (timeoutMS) {
 				v.second = container_of(uvTcp->loop, UvLoop, uvLoop)->CreateTimer(timeoutMS, 0, [this, serial = this->serial]() {
@@ -469,22 +462,6 @@ namespace xx {
 			if (iter == callbacks.end()) return;
 			iter->second.first(nullptr);
 			callbacks.erase(iter);
-		}
-
-		inline virtual int ReceiveMessage(MsgType&& msg, int const& serial) {
-			if (serial == 0) {
-				return OnReceivePush ? OnReceivePush(std::move(msg)) : 0;
-			}
-			else if (serial < 0) {
-				return OnReceiveRequest ? OnReceiveRequest(-serial, std::move(msg)) : 0;
-			}
-			else {
-				auto iter = callbacks.find(serial);
-				if (iter == callbacks.end()) return 0;
-				int r = iter->second.first(std::move(msg));
-				callbacks.erase(iter);
-				return r;
-			}
 		}
 	};
 
@@ -506,7 +483,7 @@ namespace xx {
 		};
 	};
 
-	template<typename ListenerType>
+	template<typename ListenerType, typename ENABLED>
 	inline std::shared_ptr<ListenerType> UvLoop::CreateListener(std::string const& ip, int const& port, int const& backlog) noexcept {
 		auto listener = std::make_shared<ListenerType>();
 		if (listener->Init(&uvLoop)) return nullptr;
@@ -660,7 +637,7 @@ namespace xx {
 		}
 	}
 
-	template<typename ClientType>
+	template<typename ClientType, typename ENABLED>
 	inline std::shared_ptr<ClientType> UvLoop::CreateClient() noexcept {
 		return std::make_shared<ClientType>(*this);
 	}
@@ -675,7 +652,7 @@ namespace xx {
 		return async;
 	}
 
-	template<typename TimerType>
+	template<typename TimerType, typename ENABLED>
 	inline std::shared_ptr<TimerType> UvLoop::CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire) noexcept {
 		auto timer = std::make_shared<TimerType>();
 		if (timer->Init(&uvLoop)) return nullptr;
@@ -685,7 +662,6 @@ namespace xx {
 		if (timer->Start(timeoutMS, repeatIntervalMS)) return nullptr;
 		return timer;
 	}
-
 
 	using UvUvTimer_s = std::shared_ptr<UvTimer>;
 	using UvUvTimer_w = std::weak_ptr<UvTimer>;
@@ -704,5 +680,4 @@ namespace xx {
 
 	using UvUvTcpClient_s = std::shared_ptr<UvTcpClient>;
 	using UvUvTcpClient_w = std::weak_ptr<UvTcpClient>;
-
 }

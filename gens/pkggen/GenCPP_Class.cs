@@ -15,10 +15,8 @@ public static class GenCPP_Class
         sb.Append(@"#pragma once
 #include ""xx_list.h""
 
-namespace " + templateName + @"
-{
-	struct PkgGenMd5
-	{
+namespace " + templateName + @" {
+	struct PkgGenMd5 {
 		inline static const std::string value = """ + md5 + @""";
     };
 ");
@@ -35,14 +33,13 @@ namespace " + templateName + @"
             if (c.Namespace != null && (i == 0 || (i > 0 && cs[i - 1].Namespace != c.Namespace))) // namespace 去重
             {
                 sb.Append(@"
-namespace " + c.Namespace.Replace(".", "::") + @"
-{");
+namespace " + c.Namespace.Replace(".", "::") + @" {");
             }
 
             // desc
             // enum class xxxxxxxxx : underlyingType
             sb.Append(c._GetDesc()._GetComment_Cpp(4) + @"
-    " + (c.IsValueType ? "struct" : "class") + @" " + c.Name + @";
+    " + (c.IsValueType ? "struct" : "struct") + @" " + c.Name + @";
     using " + c.Name + @"_s = std::shared_ptr<" + c.Name + @">;
     using " + c.Name + @"_w = std::weak_ptr<" + c.Name + @">;
 ");
@@ -66,15 +63,13 @@ namespace " + c.Namespace.Replace(".", "::") + @"
             if (e.Namespace != null && (i == 0 || (i > 0 && es[i - 1].Namespace != e.Namespace))) // namespace 去重
             {
                 sb.Append(@"
-namespace " + e.Namespace.Replace(".", "::") + @"
-{");
+namespace " + e.Namespace.Replace(".", "::") + @" {");
             }
 
             // desc
             // enum class xxxxxxxxx : underlyingType
             sb.Append(e._GetDesc()._GetComment_Cpp(4) + @"
-    enum class " + e.Name + @" : " + e._GetEnumUnderlyingTypeName_Cpp() + @"
-    {");
+    enum class " + e.Name + @" : " + e._GetEnumUnderlyingTypeName_Cpp() + @" {");
 
             // desc
             // xxxxxx = val
@@ -107,15 +102,13 @@ namespace " + e.Namespace.Replace(".", "::") + @"
             if (c.Namespace != null && (i == 0 || (i > 0 && ss[i - 1].Namespace != c.Namespace))) // namespace 去重
             {
                 sb.Append(@"
-namespace " + c.Namespace.Replace(".", "::") + @"
-{");
+namespace " + c.Namespace.Replace(".", "::") + @" {");
             }
 
             // desc
             // struct xxxxxxxxx
             sb.Append(c._GetDesc()._GetComment_Cpp(4) + @"
-    struct " + c.Name + @"
-    {");
+    struct " + c.Name + @" {");
 
             // desc
             // T xxxxxx = val
@@ -166,8 +159,7 @@ namespace " + c.Namespace.Replace(".", "::") + @"
             if (c.Namespace != null && (i == 0 || (i > 0 && cs[i - 1].Namespace != c.Namespace))) // namespace 去重
             {
                 sb.Append(@"
-namespace " + c.Namespace.Replace(".", "::") + @"
-{");
+namespace " + c.Namespace.Replace(".", "::") + @" {");
             }
 
             // 定位到基类
@@ -179,9 +171,7 @@ namespace " + c.Namespace.Replace(".", "::") + @"
             // constexpr T xxxxxxxxx = defaultValue
 
             sb.Append(c._GetDesc()._GetComment_Cpp(4) + @"
-    class " + c.Name + @" : public " + btn + @"
-    {
-    public:");
+    struct " + c.Name + @" : " + btn + @" {");
 
             // consts( static ) / fields
             var fs = c._GetFieldsConsts();
@@ -243,8 +233,7 @@ namespace " + c.Namespace.Replace(".", "::") + @"
 
         // 结构体 Object 接口适配
         sb.Append(@"
-namespace xx
-{");
+namespace xx {");
         cs = ts._GetStructs();
         foreach (var c in cs)
         {
@@ -253,10 +242,8 @@ namespace xx
 
             sb.Append(@"
 	template<>
-	struct BFuncs<" + ctn + @", void>
-	{
-		static inline void WriteTo(BBuffer& bb, " + ctn + @" const& in) noexcept
-		{
+	struct BFuncs<" + ctn + @", void> {
+		static inline void WriteTo(BBuffer& bb, " + ctn + @" const& in) noexcept {
 			bb.Write(");
             foreach (var f in fs)
             {
@@ -267,8 +254,7 @@ namespace xx
             }
             sb.Append(@");
 		}
-		static inline int ReadFrom(BBuffer& bb, " + ctn + @"& out) noexcept
-		{
+		static inline int ReadFrom(BBuffer& bb, " + ctn + @"& out) noexcept {
 			return bb.Read(");
             foreach (var f in fs)
             {
@@ -278,10 +264,8 @@ namespace xx
 		}
 	};
 	template<>
-	struct SFunc<" + ctn + @", void>
-	{
-		static inline void WriteTo(std::string& s, " + ctn + @" const& in) noexcept
-		{
+	struct SFuncs<" + ctn + @", void> {
+		static inline void WriteTo(std::string& s, " + ctn + @" const& in) noexcept {
 			xx::Append(s, ""{ \""structTypeName\"":\""" + (string.IsNullOrEmpty(c.Namespace) ? c.Name : c.Namespace + "." + c.Name) + @"\""""");
             foreach (var f in fs)
             {
@@ -311,8 +295,7 @@ namespace xx
 
         sb.Append(@"
 }
-namespace " + templateName + @"
-{");
+namespace " + templateName + @" {");
 
         cs = ts._GetClasss();   //._SortByInheritRelation();
         // 实现
@@ -325,8 +308,7 @@ namespace " + templateName + @"
             if (c.Namespace != null && (i == 0 || (i > 0 && cs[i - 1].Namespace != c.Namespace))) // namespace 去重
             {
                 sb.Append(@"
-namespace " + c.Namespace.Replace(".", "::") + @"
-{");
+namespace " + c.Namespace.Replace(".", "::") + @" {");
             }
 
             // 定位到基类
@@ -335,12 +317,10 @@ namespace " + c.Namespace.Replace(".", "::") + @"
             var fs = c._GetFields();
 
             sb.Append(@"
-    inline uint16_t " + c.Name + @"::GetTypeId() const noexcept
-    {
+    inline uint16_t " + c.Name + @"::GetTypeId() const noexcept {
         return " + typeIds.types[c] + @";
     }
-    inline void " + c.Name + @"::ToBBuffer(xx::BBuffer& bb) const noexcept
-    {");
+    inline void " + c.Name + @"::ToBBuffer(xx::BBuffer& bb) const noexcept {");
 
             if (c._HasBaseType())
             {
@@ -372,8 +352,7 @@ namespace " + c.Namespace.Replace(".", "::") + @"
 
             sb.Append(@"
     }
-    inline int " + c.Name + @"::FromBBuffer(xx::BBuffer& bb) noexcept
-    {");
+    inline int " + c.Name + @"::FromBBuffer(xx::BBuffer& bb) noexcept {");
             if (c._HasBaseType())
             {
                 sb.Append(@"
@@ -382,8 +361,7 @@ namespace " + c.Namespace.Replace(".", "::") + @"
             sb.Append(@"
         return this->FromBBufferCore(bb);
     }
-    inline int " + c.Name + @"::FromBBufferCore(xx::BBuffer& bb) noexcept
-    {");
+    inline int " + c.Name + @"::FromBBufferCore(xx::BBuffer& bb) noexcept {");
             fs = c._GetFields();
             foreach (var f in fs)
             {
@@ -400,9 +378,7 @@ namespace " + c.Namespace.Replace(".", "::") + @"
             sb.Append(@"
         return 0;
     }
-
-    inline void " + c.Name + @"::ToString(std::string& s) const noexcept
-    {
+    inline void " + c.Name + @"::ToString(std::string& s) const noexcept {
         if (this->toStringFlag)
         {
         	xx::Append(s, ""[ \""***** recursived *****\"" ]"");
@@ -416,8 +392,7 @@ namespace " + c.Namespace.Replace(".", "::") + @"
         
         this->SetToStringFlag(false);
     }
-    inline void " + c.Name + @"::ToStringCore(std::string& s) const noexcept
-    {
+    inline void " + c.Name + @"::ToStringCore(std::string& s) const noexcept {
         this->BaseType::ToStringCore(s);");
             foreach (var f in fs)
             {
@@ -436,10 +411,9 @@ namespace " + c.Namespace.Replace(".", "::") + @"
             }
             sb.Append(@"
     }
-    std::shared_ptr<" + c.Name + @"> " + c.Name + @"::Create() noexcept {
+    inline std::shared_ptr<" + c.Name + @"> " + c.Name + @"::Create() noexcept {
         return std::make_shared<" + c.Name + @">();
-    }
-");
+    }");
 
             // namespace }
             if (c.Namespace != null && ((i < cs.Count - 1 && cs[i + 1].Namespace != c.Namespace) || i == cs.Count - 1))
@@ -455,10 +429,8 @@ namespace " + c.Namespace.Replace(".", "::") + @"
 
 
         sb.Append(@"
-namespace " + templateName + @"
-{
-	inline void AllTypesRegister() noexcept
-	{");
+namespace " + templateName + @" {
+	inline void AllTypesRegister() noexcept {");
         foreach (var kv in typeIds.types)
         {
             var ct = kv.Key;
@@ -474,8 +446,6 @@ namespace " + templateName + @"
 	}
 }
 ");
-
-        // todo: 为 structs 生成序列化 / ToString 的适配
 
         sb._WriteToFile(Path.Combine(outDir, templateName + "_class.h"));
     }

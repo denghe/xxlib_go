@@ -1,10 +1,109 @@
 #pragma once
 #include <stdint.h>
+#include <string.h>
+#include <assert.h>
+#include <math.h>
+#include <unordered_map>
+#include <array>
+#include <type_traits>
+#include <cstdlib>
+#include <cstring>
+#include <functional>
+#include <algorithm>
+#include <limits>
+#include <vector>
+#include <deque>
+#include <mutex>
 #include <string>
 #include <initializer_list>
-#include <vector>
 #include <memory>
-#include <type_traits>
+#include <chrono>
+#include <iostream>
+
+// 当 IOS 最低版本兼容参数低于 11 时无法启用 C++17, 故启用 C++14 结合下面的各种造假来解决
+#ifdef __IPHONE_OS_VERSION_MIN_REQUIRED
+#include <experimental/optional>
+namespace std
+{
+	template<typename T>
+	using optional = std::experimental::optional<T>;
+}
+#if __IPHONE_OS_VERSION_MIN_REQUIRED < 110000
+namespace std
+{
+	template<class B, class D>
+	inline constexpr bool is_base_of_v = is_base_of<B, D>::value;
+	template<class T>
+	inline constexpr bool is_arithmetic_v = is_arithmetic<T>::value;
+	template<class T>
+	inline constexpr bool is_floating_point_v = is_floating_point<T>::value;
+	template<class T>
+	inline constexpr bool is_integral_v = is_integral<T>::value;
+	template<class T>
+	inline constexpr bool is_unsigned_v = is_unsigned<T>::value;
+	template<class T>
+	inline constexpr bool is_enum_v = is_enum<T>::value;
+	template<class T>
+	inline constexpr bool is_pointer_v = is_pointer<T>::value;
+	template<class T1, class T2>
+	inline constexpr bool is_same_v = is_same<T1, T2>::value;
+
+	template<class MutexType>
+	class scoped_lock
+	{
+	public:
+		explicit scoped_lock(MutexType& m) : m(m) { m.lock(); }
+		~scoped_lock() { m.unlock(); }
+		scoped_lock(const scoped_lock&) = delete;
+		scoped_lock& operator=(const scoped_lock&) = delete;
+	private:
+		MutexType& m;
+	};
+}
+#endif
+#else
+#include <optional>
+#endif
+
+#ifdef _WIN32
+#include <intrin.h>     // _BitScanReverse  64
+#include <objbase.h>
+#endif
+
+#ifdef min
+#undef min
+#endif
+
+#ifdef max
+#undef max
+#endif
+
+#ifndef _countof
+template<typename T, size_t N>
+size_t _countof_helper(T const (&arr)[N])
+{
+	return N;
+}
+#define _countof(_Array) _countof_helper(_Array)
+#endif
+
+#ifndef _offsetof
+#define _offsetof(s,m) ((size_t)&reinterpret_cast<char const volatile&>((((s*)0)->m)))
+#endif
+
+#ifndef container_of
+#define container_of(ptr, type, member) \
+  ((type *) ((char *) (ptr) - _offsetof(type, member)))
+#endif
+
+
+#if defined _MSC_VER
+#define XX_SSCANF sscanf_s;
+#else
+#define XX_SSCANF sscanf;
+#endif
+
+
 
 namespace std {
 	using string_s = shared_ptr<string>;

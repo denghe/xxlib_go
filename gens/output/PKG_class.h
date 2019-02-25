@@ -1,20 +1,16 @@
 ﻿#pragma once
 #include "xx_list.h"
 
-namespace PKG
-{
-	struct PkgGenMd5
-	{
+namespace PKG {
+	struct PkgGenMd5 {
 		inline static const std::string value = "5b987c41b882c0484de8619ebb97edb6";
     };
 
-    class Foo;
+    struct Foo;
     using Foo_s = std::shared_ptr<Foo>;
     using Foo_w = std::weak_ptr<Foo>;
 
-    class Foo : public xx::Object
-    {
-    public:
+    struct Foo : xx::Object {
         std::shared_ptr<PKG::Foo> parent;
         xx::List_s<std::shared_ptr<PKG::Foo>> childs;
 
@@ -36,36 +32,28 @@ namespace PKG
         inline static std::shared_ptr<ThisType> defaultInstance;
     };
 }
-namespace xx
-{
+namespace xx {
     template<> struct TypeId<PKG::Foo> { static const uint16_t value = 3; };
     template<> struct TypeId<xx::List<std::shared_ptr<PKG::Foo>>> { static const uint16_t value = 4; };
 }
-namespace PKG
-{
-    inline uint16_t Foo::GetTypeId() const noexcept
-    {
+namespace PKG {
+    inline uint16_t Foo::GetTypeId() const noexcept {
         return 3;
     }
-    inline void Foo::ToBBuffer(xx::BBuffer& bb) const noexcept
-    {
+    inline void Foo::ToBBuffer(xx::BBuffer& bb) const noexcept {
         bb.Write(this->parent);
         bb.Write(this->childs);
     }
-    inline int Foo::FromBBuffer(xx::BBuffer& bb) noexcept
-    {
+    inline int Foo::FromBBuffer(xx::BBuffer& bb) noexcept {
         return this->FromBBufferCore(bb);
     }
-    inline int Foo::FromBBufferCore(xx::BBuffer& bb) noexcept
-    {
+    inline int Foo::FromBBufferCore(xx::BBuffer& bb) noexcept {
         if (int r = bb.Read(this->parent)) return r;
         bb.readLengthLimit = 0;
         if (int r = bb.Read(this->childs)) return r;
         return 0;
     }
-
-    inline void Foo::ToString(std::string& s) const noexcept
-    {
+    inline void Foo::ToString(std::string& s) const noexcept {
         if (this->toStringFlag)
         {
         	xx::Append(s, "[ \"***** recursived *****\" ]");
@@ -79,21 +67,17 @@ namespace PKG
         
         this->SetToStringFlag(false);
     }
-    inline void Foo::ToStringCore(std::string& s) const noexcept
-    {
+    inline void Foo::ToStringCore(std::string& s) const noexcept {
         this->BaseType::ToStringCore(s);
         xx::Append(s, ", \"parent\":", this->parent);
         xx::Append(s, ", \"childs\":", this->childs);
     }
-    std::shared_ptr<Foo> Foo::Create() noexcept {
+    inline std::shared_ptr<Foo> Foo::Create() noexcept {
         return std::make_shared<Foo>();
     }
-
 }
-namespace PKG
-{
-	inline void AllTypesRegister() noexcept
-	{
+namespace PKG {
+	inline void AllTypesRegister() noexcept {
 	    xx::BBuffer::Register<PKG::Foo>(3);
 	    xx::BBuffer::Register<xx::List<std::shared_ptr<PKG::Foo>>>(4);
 	}

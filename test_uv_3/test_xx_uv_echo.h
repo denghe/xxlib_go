@@ -1,24 +1,24 @@
 ﻿#pragma once
-#include "xx_uv_base.h"
+#include "xx_uv.h"
 #include <chrono>
 #include <iostream>
 #include <thread>
 
 // 支持收啥发啥的 peer
 
-struct EchoPeer : UvTcpBasePeer {
+struct EchoPeer : UvTcpPeer {
 	inline int Unpack(uint8_t const* const& buf, uint32_t const& len) noexcept override {
 		return Send(buf, len);
 	}
 };
 
-struct EchoListener : UvTcpBaseListener {
-	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
+struct EchoListener : UvTcpListener {
+	inline virtual std::shared_ptr<UvTcpPeer> CreatePeer() noexcept override {
 		return std::make_shared<EchoPeer>();
 	}
 };
 
-struct EchoClientPeer : UvTcpBasePeer {
+struct EchoClientPeer : UvTcpPeer {
 	std::chrono::time_point<std::chrono::system_clock> t = std::chrono::system_clock::now();
 	int count = 0;
 	inline int Unpack(uint8_t const* const& buf, uint32_t const& len) noexcept override {
@@ -30,9 +30,9 @@ struct EchoClientPeer : UvTcpBasePeer {
 	}
 };
 
-struct EchoClient : UvTcpBaseClient {
-	using UvTcpBaseClient::UvTcpBaseClient;
-	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
+struct EchoClient : UvTcpClient {
+	using UvTcpClient::UvTcpClient;
+	inline virtual std::shared_ptr<UvTcpPeer> CreatePeer() noexcept override {
 		return std::make_shared<EchoClientPeer>();
 	}
 	inline virtual void Connect() noexcept override {
