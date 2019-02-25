@@ -1,6 +1,6 @@
 #pragma once
-#include "xx_object.h"
-#include "xx_buffer.h"
+#include "xx_list.h"
+#include <memory>
 #include <string>
 #include <initializer_list>
 #include <unordered_map>
@@ -9,14 +9,57 @@
 
 namespace xx {
 
+	struct Buffer : List<uint8_t> {
+		using BaseType = List<uint8_t>;
+		using BaseType::BaseType;
+
+		Buffer(uint8_t const* const& buf, size_t const& len, size_t const& prefix = 0) {
+			assert(buf && len);
+			this->buf = (uint8_t*)malloc(len + prefix);
+			this->len = len + prefix;
+			this->cap = cap + prefix;
+			memcpy(this->buf + prefix, buf, len);
+		}
+		Buffer(Buffer&& o)
+			: BaseType(std::move(o)) {
+		}
+
+		Buffer& operator=(Buffer&& o) {
+			this->BaseType::operator=(std::move(o));
+			return *this;
+		}
+
+		Buffer(Buffer const&) = delete;
+		Buffer& operator=(Buffer const&) = delete;
+
+		inline void RemoveFront(size_t const& len) {
+			assert(len <= this->len);
+			if (!len) return;
+			this->len -= len;
+			if (this->len) {
+				memmove(buf, buf + len, this->len);
+			}
+		}
+	};
+
+	// 适配 Buffer
+	template<>
+	struct IsTrivial<Buffer, void> {
+		static const bool value = true;
+	};
+
 	struct BBuffer : Buffer {
 		size_t offset = 0;													// 读指针偏移量
 		size_t offsetRoot = 0;												// offset值写入修正
 		size_t readLengthLimit = 0;											// 主用于传递给容器类进行长度合法校验
 
 		std::unordered_map<void*, size_t> ptrs;
-		std::unordered_map<size_t, std::shared_ptr<Object>> idxs;
-		std::unordered_map<size_t, std::shared_ptr<std::string>> idxs1;
+		std::unordered_map<size_t, std::shared_ptr<Object>> objIdxs;
+		std::unordered_map<size_t, std::shared_ptr<std::string>> strIdxs;
+
+		static std::shared_ptr<BBuffer> Create() {
+			return std::make_shared<BBuffer>();
+		}
 
 		using Buffer::Buffer;
 		BBuffer(BBuffer&& o) 
@@ -27,6 +70,7 @@ namespace xx {
 		inline BBuffer& operator=(BBuffer&& o) {
 			this->Buffer::operator=(std::move(o));
 			std::swap(offset, o.offset);
+			// ptrs, objIdxs, strIdxs 因为是临时数据, 不需要处理
 			return *this;
 		}
 		BBuffer(BBuffer const&) = delete;
@@ -68,8 +112,8 @@ namespace xx {
 		int ReadRoot(std::shared_ptr<T>& v) noexcept {
 			offsetRoot = offset;
 			int r = Read(v);
-			idxs.clear();
-			idxs1.clear();
+			objIdxs.clear();
+			strIdxs.clear();
 			return r;
 		}
 
@@ -130,7 +174,7 @@ namespace xx {
 			if (ptrOffset == offs) {
 				if constexpr (std::is_same_v<std::string, T>) {
 					v = std::make_shared<std::string>();
-					idxs1[ptrOffset] = v;
+					strIdxs[ptrOffset] = v;
 					if (auto r = Read(*v)) return r;
 				}
 				else {
@@ -143,19 +187,19 @@ namespace xx {
 					}
 					v = std::dynamic_pointer_cast<T>(o);
 					if (!v) return -4;
-					idxs[ptrOffset] = o;
+					objIdxs[ptrOffset] = o;
 					if (auto r = o->FromBBuffer(*this)) return r;
 				}
 			}
 			else {
 				if constexpr (std::is_same_v<std::string, T>) {
-					auto iter = idxs1.find(ptrOffset);
-					if (iter == idxs1.end()) return -5;
+					auto iter = strIdxs.find(ptrOffset);
+					if (iter == strIdxs.end()) return -5;
 					v = iter->second;
 				}
 				else {
-					auto iter = idxs.find(ptrOffset);
-					if (iter == idxs.end()) return -6;
+					auto iter = objIdxs.find(ptrOffset);
+					if (iter == objIdxs.end()) return -6;
 					if (iter->second->GetTypeId() != typeId) return -7;
 					v = std::dynamic_pointer_cast<T>(iter->second);
 					if (!v) return -8;

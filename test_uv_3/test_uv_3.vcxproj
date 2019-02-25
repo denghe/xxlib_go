@@ -96,16 +96,13 @@
     <ClInclude Include="test_xx_uv_coroutine.h" />
     <ClInclude Include="test_xx_uv_stackless.h" />
     <ClInclude Include="xx_bbuffer.h" />
-    <ClInclude Include="xx_buffer.h" />
     <ClInclude Include="xx_coroutine.h" />
     <ClInclude Include="xx_list.h" />
     <ClInclude Include="xx_object.h" />
     <ClInclude Include="xx_stackless.h" />
-    <ClInclude Include="xx_uv_base.h" />
+    <ClInclude Include="xx_uv.h" />
     <ClInclude Include="test_xx_uv_echo.h" />
-    <ClInclude Include="xx_uv_pack.h" />
     <ClInclude Include="xx_uv_coroutine.h" />
-    <ClInclude Include="xx_uv_msg.h" />
     <ClInclude Include="xx_uv_stackless.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

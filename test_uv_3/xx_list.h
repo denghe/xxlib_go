@@ -21,15 +21,6 @@ namespace xx
 		static const bool value = true;
 	};
 
-	template<typename T>
-	struct List;
-
-	//   ≈‰ List<T>
-	template<typename T>
-	struct IsTrivial<List<T>, void> {
-		static const bool value = true;
-	};
-
 
 	struct BBuffer;
 
@@ -314,6 +305,12 @@ namespace xx
 			}
 			SetToStringFlag(false);
 		}
+	};
+
+	//   ≈‰ List<T>
+	template<typename T>
+	struct IsTrivial<List<T>, void> {
+		static const bool value = true;
 	};
 
 	template<typename T>

@@ -10,9 +10,6 @@
     <ClInclude Include="xx_bbuffer.h">
       <Filter>xx</Filter>
     </ClInclude>
-    <ClInclude Include="xx_buffer.h">
-      <Filter>xx</Filter>
-    </ClInclude>
     <ClInclude Include="xx_coroutine.h">
       <Filter>xx</Filter>
     </ClInclude>
@@ -22,22 +19,16 @@
     <ClInclude Include="xx_stackless.h">
       <Filter>xx</Filter>
     </ClInclude>
-    <ClInclude Include="xx_uv_base.h">
-      <Filter>xx</Filter>
-    </ClInclude>
     <ClInclude Include="xx_uv_coroutine.h">
-      <Filter>xx</Filter>
-    </ClInclude>
-    <ClInclude Include="xx_uv_msg.h">
-      <Filter>xx</Filter>
-    </ClInclude>
-    <ClInclude Include="xx_uv_pack.h">
       <Filter>xx</Filter>
     </ClInclude>
     <ClInclude Include="xx_uv_stackless.h">
       <Filter>xx</Filter>
     </ClInclude>
     <ClInclude Include="xx_list.h">
+      <Filter>xx</Filter>
+    </ClInclude>
+    <ClInclude Include="xx_uv.h">
       <Filter>xx</Filter>
     </ClInclude>
   </ItemGroup>

@@ -34,6 +34,7 @@ namespace xx {
 		}
 	};
 
+	using Object_s = std::shared_ptr<Object>;
 
 	// TypeId ”≥…‰
 	template<typename T>
