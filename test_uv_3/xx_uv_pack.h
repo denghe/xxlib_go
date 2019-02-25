@@ -22,7 +22,7 @@ namespace xx {
 		std::function<int(uint8_t const* const& buf, uint32_t const& len)> OnReceivePack;
 
 		inline int Unpack(uint8_t const* const& recvBuf, uint32_t const& recvLen) noexcept override {
-			buf.Append(recvBuf, recvLen);
+			buf.AddRange(recvBuf, recvLen);
 			uint32_t offset = 0;
 			while (offset + 4 <= buf.len) {							// ensure header len( 4 bytes )
 				auto len = buf[offset + 0] + (buf[offset + 1] << 8) + (buf[offset + 2] << 16) + (buf[offset + 3] << 24);

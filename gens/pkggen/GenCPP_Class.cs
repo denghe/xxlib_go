@@ -13,7 +13,7 @@ public static class GenCPP_Class
 
         // template namespace
         sb.Append(@"#pragma once
-#include ""xx_bbuffer.h""
+#include ""xx_list.h""
 
 namespace " + templateName + @"
 {
@@ -218,12 +218,16 @@ namespace " + c.Namespace.Replace(".", "::") + @"
 	    " + c.Name + @"() = default;
 		" + c.Name + @"(" + c.Name + @" const&) = delete;
 		" + c.Name + @"& operator=(" + c.Name + @" const&) = delete;
-        virtual uint16_t GetTypeId() const noexcept;
+
         void ToString(std::string& s) const noexcept override;
         void ToStringCore(std::string& s) const noexcept override;
+
+        virtual uint16_t GetTypeId() const noexcept;
         void ToBBuffer(xx::BBuffer& bb) const noexcept override;
         int FromBBuffer(xx::BBuffer& bb) noexcept override;
         int FromBBufferCore(xx::BBuffer& bb) noexcept;
+
+        static std::shared_ptr<" + c.Name + @"> Create() noexcept;
         inline static std::shared_ptr<ThisType> defaultInstance;
     };");   // class }
 
@@ -301,8 +305,8 @@ namespace xx
             var typeId = kv.Value;
             var ctn = ct._GetTypeDecl_Cpp(templateName);
 
-            //           sb.Append(@"
-            //template<> struct TypeId<" + ctn + @"> { static const uint16_t value = " + typeId + @"; };");
+            sb.Append(@"
+    template<> struct TypeId<" + ctn + @"> { static const uint16_t value = " + typeId + @"; };");
         }
 
         sb.Append(@"
@@ -333,7 +337,7 @@ namespace " + c.Namespace.Replace(".", "::") + @"
             sb.Append(@"
     inline uint16_t " + c.Name + @"::GetTypeId() const noexcept
     {
-        return "+ typeIds.types[c] +@";
+        return " + typeIds.types[c] + @";
     }
     inline void " + c.Name + @"::ToBBuffer(xx::BBuffer& bb) const noexcept
     {");
@@ -431,6 +435,9 @@ namespace " + c.Namespace.Replace(".", "::") + @"
                 }
             }
             sb.Append(@"
+    }
+    std::shared_ptr<" + c.Name + @"> " + c.Name + @"::Create() noexcept {
+        return std::make_shared<" + c.Name + @">();
     }
 ");
 

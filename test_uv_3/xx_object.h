@@ -2,11 +2,25 @@
 #include <stdint.h>
 #include <string>
 #include <initializer_list>
+#include <vector>
+#include <memory>
+#include <type_traits>
+
+namespace std {
+	using string_s = shared_ptr<string>;
+	using string_w = weak_ptr<string>;
+	template<typename T>
+	using vector_s = shared_ptr<vector<T>>;
+	template<typename T>
+	using vector_w = weak_ptr<vector<T>>;
+}
 
 namespace xx {
 	struct BBuffer;
 
 	struct Object {
+		virtual ~Object() {}
+
 		inline virtual uint16_t GetTypeId() const noexcept { return 0; }
 		inline virtual void ToBBuffer(BBuffer& bb) const noexcept {}
 		inline virtual int FromBBuffer(BBuffer& bb) noexcept { return 0; }
@@ -20,8 +34,16 @@ namespace xx {
 		}
 	};
 
-	using String_s = std::shared_ptr<std::string>;
-	using String_w = std::weak_ptr<std::string>;
+
+	// TypeId 映射
+	template<typename T>
+	struct TypeId {
+		static const uint16_t value = 0;
+	};
+
+	template<typename T>
+	constexpr uint16_t TypeId_v = TypeId<T>::value;
+
 
 	// 序列化 基础适配模板
 	template<typename T, typename ENABLED = void>
@@ -172,10 +194,39 @@ namespace xx {
 
 
 
+	// utils
+
+	inline size_t Calc2n(size_t const& n) noexcept {
+		assert(n);
+#ifdef _MSC_VER
+		unsigned long r = 0;
+#if defined(_WIN64) || defined(_M_X64)
+		_BitScanReverse64(&r, n);
+# else
+		_BitScanReverse(&r, n);
+# endif
+		return (size_t)r;
+#else
+#if defined(__LP64__) || __WORDSIZE == 64
+		return int(63 - __builtin_clzl(n));
+# else
+		return int(31 - __builtin_clz(n));
+# endif
+#endif
+	}
+
+	inline size_t Round2n(size_t const& n) noexcept {
+		auto rtv = size_t(1) << Calc2n(n);
+		if (rtv == n) return n;
+		else return rtv << 1;
+	}
+
+
+
+
 	// std::cout 扩展
 
-	inline std::ostream& operator<<(std::ostream& os, const Object& o)
-	{
+	inline std::ostream& operator<<(std::ostream& os, const Object& o) {
 		std::string s;
 		o.ToString(s);
 		os << s;
@@ -183,15 +234,13 @@ namespace xx {
 	}
 
 	template<typename T>
-	std::ostream& operator<<(std::ostream& os, std::shared_ptr<T> const& o)
-	{
+	std::ostream& operator<<(std::ostream& os, std::shared_ptr<T> const& o) {
 		if (!o) return os << "nil";
 		return os << *o;
 	}
 
 	template<typename T>
-	std::ostream& operator<<(std::ostream& os, std::weak_ptr<T> const& o)
-	{
+	std::ostream& operator<<(std::ostream& os, std::weak_ptr<T> const& o) {
 		if (!o) return os << "nil";
 		return os << *o;
 	}

@@ -37,6 +37,9 @@
     <ClInclude Include="xx_uv_stackless.h">
       <Filter>xx</Filter>
     </ClInclude>
+    <ClInclude Include="xx_list.h">
+      <Filter>xx</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="xx">

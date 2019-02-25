@@ -719,7 +719,7 @@ public static class GenExtensions
             {
                 if (t.Name == "Ref`1")
                 {
-                    return "xx::Ref<" + _GetTypeDecl_Cpp(t.GenericTypeArguments[0], templateName) + ">";
+                    return "std::shared_ptr<" + _GetTypeDecl_Cpp(t.GenericTypeArguments[0], templateName) + ">";
                 }
                 else if (t.Name == "List`1")
                 {
@@ -773,7 +773,7 @@ public static class GenExtensions
                     case "Bool":
                         return "bool";
                     case "String":
-                        return "xx::String" + suffix;
+                        return "std::string" + suffix;
                 }
             }
 

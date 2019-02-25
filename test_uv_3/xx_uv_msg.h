@@ -45,12 +45,12 @@ namespace xx {
 			sendBB.WriteRoot(msg);									// data
 
 			auto buf = sendBB.buf;									// cut buf memory for send
-			auto len = sendBB.len - (uint32_t)sizeof(uv_write_t_ex) - 4;
+			auto len = sendBB.len - sizeof(uv_write_t_ex) - 4;
 			sendBB.buf = nullptr;
 			sendBB.len = 0;
 			sendBB.cap = 0;
 
-			return SendReqPack(buf, len);
+			return SendReqPack(buf, (uint32_t)len);
 		}
 
 		inline int SendPush(MsgType const& msg) {

@@ -1,63 +1,33 @@
 ﻿#pragma once
-#include "xx_object.h"
+#include "xx_list.h"
 #include <memory>
 #include <cassert>
 namespace xx {
 
-	struct Buffer : Object {
-		uint8_t* buf;
-		uint32_t len;
-		uint32_t cap;
+	struct Buffer : List<uint8_t> {
+		using BaseType = List<uint8_t>;
+		using BaseType::BaseType;
 
-		Buffer() {
-			buf = nullptr;
-			len = 0;
-			this->cap = 0;
-		}
-		Buffer(uint32_t const& cap) {
-			buf = cap ? (uint8_t*)malloc(cap) : nullptr;
-			len = 0;
-			this->cap = cap;
-		}
-		Buffer(uint8_t const* const& buf, uint32_t const& len, uint32_t const& prefix = 0) {
+		Buffer(uint8_t const* const& buf, size_t const& len, size_t const& prefix = 0) {
 			assert(buf && len);
 			this->buf = (uint8_t*)malloc(len + prefix);
 			this->len = len + prefix;
 			this->cap = cap + prefix;
 			memcpy(this->buf + prefix, buf, len);
 		}
-		Buffer(Buffer&& o) : buf(o.buf), len(o.len), cap(o.cap) {
-			o.buf = nullptr;
-			o.len = 0;
-			o.cap = 0;
+		Buffer(Buffer&& o) 
+			: BaseType(std::move(o)) {
 		}
+
 		Buffer& operator=(Buffer&& o) {
-			std::swap(buf, o.buf);
-			std::swap(len, o.len);
-			std::swap(cap, o.cap);
+			this->BaseType::operator=(std::move(o));
 			return *this;
 		}
+
 		Buffer(Buffer const&) = delete;
 		Buffer& operator=(Buffer const&) = delete;
 
-		inline void Reserve(uint32_t const& cap) noexcept {
-			if (cap <= this->cap) return;
-			if (!this->cap) {
-				this->cap = 32700;
-			}
-			while (this->cap < cap) {
-				this->cap *= 2;
-			}
-			buf = (uint8_t*)realloc(buf, this->cap);
-		}
-
-		inline void Append(uint8_t const* const& buf, uint32_t const& len) {
-			Reserve(this->len + len);
-			memcpy(this->buf + this->len, buf, len);
-			this->len += len;
-		}
-
-		inline void RemoveFront(uint32_t const& len) {
+		inline void RemoveFront(size_t const& len) {
 			assert(len <= this->len);
 			if (!len) return;
 			this->len -= len;
@@ -65,29 +35,5 @@ namespace xx {
 				memmove(buf, buf + len, this->len);
 			}
 		}
-
-		inline uint8_t operator[](uint32_t const& idx) const noexcept {
-			assert(idx < len);
-			return buf[idx];
-		}
-		inline uint8_t& operator[](uint32_t const& idx) noexcept {
-			assert(idx < len);
-			return buf[idx];
-		}
-
-		inline void Clear(bool const& release = false) noexcept {
-			if (!buf) return;
-			len = 0;
-			if (release) {
-				free(buf);
-				buf = nullptr;
-				cap = 0;
-			}
-		}
-
-		~Buffer() {
-			Clear(true);
-		}
 	};
-
 }

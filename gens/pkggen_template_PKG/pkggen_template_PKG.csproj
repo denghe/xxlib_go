@@ -42,10 +42,6 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Login_Client.cs" />
-    <Compile Include="Client_Login.cs" />
-    <Compile Include="DB_Login.cs" />
-    <Compile Include="Login_DB.cs" />
     <Compile Include="Generic.cs" />
     <Compile Include="PKG_TypeIdMappings.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
