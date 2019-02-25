@@ -690,7 +690,7 @@ public static class GenExtensions
     {
         if (t._IsNullable())
         {
-            return "std::optional<" + t.GenericTypeArguments[0]._GetTypeDecl_Cpp(templateName, "_p") + ">";
+            return "std::optional<" + t.GenericTypeArguments[0]._GetTypeDecl_Cpp(templateName, "_s") + ">";
         }
         if (t.IsArray)                // 当前特指 byte[]
         {
@@ -704,7 +704,7 @@ public static class GenExtensions
             {
                 if (i > 0)
                     rtv += ", ";
-                rtv += _GetTypeDecl_Cpp(t.GenericTypeArguments[i], templateName, "_p");
+                rtv += _GetTypeDecl_Cpp(t.GenericTypeArguments[i], templateName, "_s");
             }
             rtv += ">";
             return rtv;
@@ -723,7 +723,7 @@ public static class GenExtensions
                 }
                 else if (t.Name == "List`1")
                 {
-                    return "xx::List" + suffix + @"<" + _GetTypeDecl_Cpp(t.GenericTypeArguments[0], templateName, "_p") + ">";
+                    return "xx::List" + suffix + @"<" + _GetTypeDecl_Cpp(t.GenericTypeArguments[0], templateName, "_s") + ">";
                 }
                 else if (t.Name == "DateTime")
                 {

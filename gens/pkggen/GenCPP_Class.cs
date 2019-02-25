@@ -13,13 +13,13 @@ public static class GenCPP_Class
 
         // template namespace
         sb.Append(@"#pragma once
-#include ""xx.h""
+#include ""xx_bbuffer.h""
 
 namespace " + templateName + @"
 {
 	struct PkgGenMd5
 	{
-		static constexpr char const* value = """ + md5 + @""";
+		inline static const std::string value = """ + md5 + @""";
     };
 ");
         var ts = asm._GetTypes();
@@ -43,8 +43,8 @@ namespace " + c.Namespace.Replace(".", "::") + @"
             // enum class xxxxxxxxx : underlyingType
             sb.Append(c._GetDesc()._GetComment_Cpp(4) + @"
     " + (c.IsValueType ? "struct" : "class") + @" " + c.Name + @";
-    using " + c.Name + @"_p = xx::Ptr<" + c.Name + @">;
-    using " + c.Name + @"_r = xx::Ref<" + c.Name + @">;
+    using " + c.Name + @"_s = std::shared_ptr<" + c.Name + @">;
+    using " + c.Name + @"_w = std::weak_ptr<" + c.Name + @">;
 ");
 
             // namespace }
@@ -188,7 +188,7 @@ namespace " + c.Namespace.Replace(".", "::") + @"
             foreach (var f in fs)
             {
                 var ft = f.FieldType;
-                var ftn = ft._GetTypeDecl_Cpp(templateName, "_p");
+                var ftn = ft._GetTypeDecl_Cpp(templateName, "_s");
                 sb.Append(f._GetDesc()._GetComment_Cpp(8) + @"
         " + (f.IsStatic ? "constexpr " : "") + ftn + " " + f.Name);
 
@@ -215,19 +215,16 @@ namespace " + c.Namespace.Replace(".", "::") + @"
 
         typedef " + c.Name + @" ThisType;
         typedef " + btn + @" BaseType;
-	    " + c.Name + @"(xx::MemPool* const& mempool) noexcept;
-	    " + c.Name + @"(xx::BBuffer* const& bb);
+	    " + c.Name + @"() = default;
 		" + c.Name + @"(" + c.Name + @" const&) = delete;
 		" + c.Name + @"& operator=(" + c.Name + @" const&) = delete;
-        void ToString(xx::String& s) const noexcept override;
-        void ToStringCore(xx::String& s) const noexcept override;
+        virtual uint16_t GetTypeId() const noexcept;
+        void ToString(std::string& s) const noexcept override;
+        void ToStringCore(std::string& s) const noexcept override;
         void ToBBuffer(xx::BBuffer& bb) const noexcept override;
         int FromBBuffer(xx::BBuffer& bb) noexcept override;
         int FromBBufferCore(xx::BBuffer& bb) noexcept;
-        void CopyTo(" + c.Name + @"* const& o) const noexcept;
-        " + c.Name + @"* MakeCopy() const noexcept;
-        " + c.Name + @"_p MakePtrCopy() const noexcept;
-        inline static xx::Ptr<ThisType> defaultInstance;
+        inline static std::shared_ptr<ThisType> defaultInstance;
     };");   // class }
 
             // namespace }
@@ -240,7 +237,7 @@ namespace " + c.Namespace.Replace(".", "::") + @"
         sb.Append(@"
 }");
 
-        // 泛型接口适配
+        // 结构体 Object 接口适配
         sb.Append(@"
 namespace xx
 {");
@@ -252,18 +249,14 @@ namespace xx
 
             sb.Append(@"
 	template<>
-	struct BytesFunc<" + ctn + @", void>
+	struct BFuncs<" + ctn + @", void>
 	{
 		static inline void WriteTo(BBuffer& bb, " + ctn + @" const& in) noexcept
 		{
 			bb.Write(");
             foreach (var f in fs)
             {
-                if (f._Has<TemplateLibrary.NotSerialize>())
-                {
-                    // todo: write 默认值
-                }
-                else
+                if (!f._Has<TemplateLibrary.NotSerialize>())
                 {
                     sb.Append((f == fs.First() ? "" : @", ") + "in." + f.Name);
                 }
@@ -281,11 +274,11 @@ namespace xx
 		}
 	};
 	template<>
-	struct StrFunc<" + ctn + @", void>
+	struct SFunc<" + ctn + @", void>
 	{
-		static inline void WriteTo(xx::String& s, " + ctn + @" const& in) noexcept
+		static inline void WriteTo(std::string& s, " + ctn + @" const& in) noexcept
 		{
-			s.Append(""{ \""structTypeName\"":\""" + (string.IsNullOrEmpty(c.Namespace) ? c.Name : c.Namespace + "." + c.Name) + @"\""""");
+			xx::Append(s, ""{ \""structTypeName\"":\""" + (string.IsNullOrEmpty(c.Namespace) ? c.Name : c.Namespace + "." + c.Name) + @"\""""");
             foreach (var f in fs)
             {
                 sb.Append(@", "", \""" + f.Name + @"\"":"", in." + f.Name);
@@ -308,8 +301,8 @@ namespace xx
             var typeId = kv.Value;
             var ctn = ct._GetTypeDecl_Cpp(templateName);
 
-            sb.Append(@"
-	template<> struct TypeId<" + ctn + @"> { static const uint16_t value = " + typeId + @"; };");
+            //           sb.Append(@"
+            //template<> struct TypeId<" + ctn + @"> { static const uint16_t value = " + typeId + @"; };");
         }
 
         sb.Append(@"
@@ -338,16 +331,10 @@ namespace " + c.Namespace.Replace(".", "::") + @"
             var fs = c._GetFields();
 
             sb.Append(@"
-	inline " + c.Name + @"::" + c.Name + @"(xx::MemPool* const& mempool) noexcept
-        : " + btn + @"(mempool)");
-            sb.Append(@"
-	{
-	}
-	inline " + c.Name + @"::" + c.Name + @"(xx::BBuffer* const& bb)
-        : " + btn + @"(bb)
-	{
-        if (int r = FromBBufferCore(*bb)) throw r;
-	}
+    inline uint16_t " + c.Name + @"::GetTypeId() const noexcept
+    {
+        return "+ typeIds.types[c] +@";
+    }
     inline void " + c.Name + @"::ToBBuffer(xx::BBuffer& bb) const noexcept
     {");
 
@@ -363,13 +350,14 @@ namespace " + c.Namespace.Replace(".", "::") + @"
                 if (ft._IsExternal() && !ft._GetExternalSerializable()) continue;
                 if (f._Has<TemplateLibrary.NotSerialize>())
                 {
-                    sb.Append(@"
-        bb.WriteDefaultValue<" + ft._GetTypeDecl_Cpp(templateName, "_p") + ">();");
+                    //            sb.Append(@"
+                    //bb.WriteDefaultValue<" + ft._GetTypeDecl_Cpp(templateName, "_s") + ">();");
                 }
                 else if (f._Has<TemplateLibrary.CustomSerialize>())
                 {
-                    sb.Append(@"
-        bb.CustomWrite(bb, (void*)this, _offsetof(ThisType, " + f.Name + "));");
+                    //            sb.Append(@"
+                    //bb.CustomWrite(bb, (void*)this, _offsetof(ThisType, " + f.Name + "));");
+                    throw new NotImplementedException();
                 }
                 else
                 {
@@ -409,22 +397,22 @@ namespace " + c.Namespace.Replace(".", "::") + @"
         return 0;
     }
 
-    inline void " + c.Name + @"::ToString(xx::String& s) const noexcept
+    inline void " + c.Name + @"::ToString(std::string& s) const noexcept
     {
-        if (this->memHeader().flags)
+        if (this->toStringFlag)
         {
-        	s.Append(""[ \""***** recursived *****\"" ]"");
+        	xx::Append(s, ""[ \""***** recursived *****\"" ]"");
         	return;
         }
-        else this->memHeader().flags = 1;
+        else this->SetToStringFlag();
 
-        s.Append(""{ \""pkgTypeName\"":\""" + (string.IsNullOrEmpty(c.Namespace) ? c.Name : c.Namespace + "." + c.Name) + @"\"", \""pkgTypeId\"":"", xx::TypeId_v<ThisType>);
+        xx::Append(s, ""{ \""pkgTypeName\"":\""" + (string.IsNullOrEmpty(c.Namespace) ? c.Name : c.Namespace + "." + c.Name) + @"\"", \""pkgTypeId\"":"", GetTypeId());
         ToStringCore(s);
-        s.Append("" }"");
+        xx::Append(s, "" }"");
         
-        this->memHeader().flags = 0;
+        this->SetToStringFlag(false);
     }
-    inline void " + c.Name + @"::ToStringCore(xx::String& s) const noexcept
+    inline void " + c.Name + @"::ToStringCore(std::string& s) const noexcept
     {
         this->BaseType::ToStringCore(s);");
             foreach (var f in fs)
@@ -433,40 +421,16 @@ namespace " + c.Namespace.Replace(".", "::") + @"
                 if (f.FieldType._IsString())
                 {
                     sb.Append(@"
-        if (this->" + f.Name + @") s.Append("", \""" + f.Name + @"\"":\"""", this->" + f.Name + @", ""\"""");
-        else s.Append("", \""" + f.Name + @"\"":nil"");");
+        if (this->" + f.Name + @") xx::Append(s, "", \""" + f.Name + @"\"":\"""", this->" + f.Name + @", ""\"""");
+        else xx::Append(s, "", \""" + f.Name + @"\"":nil"");");
                 }
                 else
                 {
                     sb.Append(@"
-        s.Append("", \""" + f.Name + @"\"":"", this->" + f.Name + @");");
+        xx::Append(s, "", \""" + f.Name + @"\"":"", this->" + f.Name + @");");
                 }
             }
             sb.Append(@"
-    }
-    inline void " + c.Name + @"::CopyTo(" + c.Name + @"* const& o) const noexcept
-    {");
-            if (c._HasBaseType())
-            {
-                sb.Append(@"
-        this->BaseType::CopyTo(o);");
-            }
-            foreach (var f in fs)
-            {
-                sb.Append(@"
-        o->" + f.Name + @" = this->" + f.Name + @";");
-            }
-            sb.Append(@"
-    }
-    inline " + c.Name + @"* " + c.Name + @"::MakeCopy() const noexcept
-    {
-        auto o = mempool->MPCreate<" + c.Name + @">();
-        this->CopyTo(o);
-        return o;
-    }
-    inline " + c.Name + @"_p " + c.Name + @"::MakePtrCopy() const noexcept
-    {
-        return " + c.Name + @"_p(this->MakeCopy());
     }
 ");
 
@@ -487,8 +451,7 @@ namespace " + c.Namespace.Replace(".", "::") + @"
 namespace " + templateName + @"
 {
 	inline void AllTypesRegister() noexcept
-	{
-        xx::MemPool::RegisterInternals();");
+	{");
         foreach (var kv in typeIds.types)
         {
             var ct = kv.Key;
@@ -498,7 +461,7 @@ namespace " + templateName + @"
             var btn = ct._HasBaseType() ? bt._GetTypeDecl_Cpp(templateName) : "xx::Object";
 
             sb.Append(@"
-	    xx::MemPool::Register<" + ctn + @", " + btn + @">();");
+	    xx::BBuffer::Register<" + ctn + @">(" + kv.Value + @");");
         }
         sb.Append(@"
 	}

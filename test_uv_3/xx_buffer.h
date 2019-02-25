@@ -9,7 +9,12 @@ namespace xx {
 		uint32_t len;
 		uint32_t cap;
 
-		Buffer(uint32_t const& cap = 0) {
+		Buffer() {
+			buf = nullptr;
+			len = 0;
+			this->cap = 0;
+		}
+		Buffer(uint32_t const& cap) {
 			buf = cap ? (uint8_t*)malloc(cap) : nullptr;
 			len = 0;
 			this->cap = cap;
