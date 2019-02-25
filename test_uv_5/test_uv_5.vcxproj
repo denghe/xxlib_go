@@ -12,7 +12,7 @@
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>
-    <ProjectGuid>{85039DD4-098C-4B31-924A-0F4D884DF2F7}</ProjectGuid>
+    <ProjectGuid>{85039DD4-098C-4B31-924A-0F4D884DF2F8}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>test_uv_4</RootNamespace>
     <WindowsTargetPlatformVersion>8.1</WindowsTargetPlatformVersion>

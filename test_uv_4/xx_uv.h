@@ -1,543 +1,660 @@
 ﻿#pragma once
-#include "uv.h"
 #include "xx.h"
-#include <stdint.h>
-#include <cstdlib>
-#include <cstring>
-#include <memory>
-#include <functional>
-#include <cassert>
 #include <mutex>
 
-template<typename T>
-T* UvAlloc(void* const& ud) noexcept {
-	auto p = (void**)::malloc(sizeof(void*) + sizeof(T));
-	if (!p) return nullptr;
-	p[0] = ud;
-	return (T*)&p[1];
-}
-inline void UvFree(void* const& p) noexcept {
-	::free((void**)p - 1);
-}
-template<typename T>
-T* UvGetSelf(void* const& p) noexcept {
-	return (T*)*((void**)p - 1);
-}
+// 重要: 除了 UvLoop, 其他类型只能以指针方式 Create 出来用. 否则将导致版本号检测变野失败. 所有回调都属于 noexcept, 如有异常, 需要自己 try
+// 如果要继承最上层基类为 UvOnDispose 的派生类，需要在最外层析构中执行 CallOnDispose() 以确保 OnDispose, OnDisconnect 之类 的事件函数在最外层类成员析构之前执行
 
-template<typename T>
-void UvHandleCloseAndFree(T*& tar) noexcept {
-	if (!tar) return;
-	auto h = (uv_handle_t*)tar;
-	tar = nullptr;
-	assert(!uv_is_closing(h));
-	uv_close(h, [](uv_handle_t* handle) {
-		UvFree(handle);
-	});
-}
+// 提示: IOS 下面可以使用 uvloop.GetIPList 解析域名可以令程序强制弹 网络权限窗
 
-struct UvTimer;
-struct UvResolver;
-struct UvAsync;
+namespace xx
+{
+	class UvLoop;
+	class UvListenerBase;
+	class UvTcpListener;
+	class UvTcpUdpBase;
+	class UvTcpBase;
+	class UvTcpPeer;
+	class UvTcpClient;
+	class UvTimer;
+	class UvTimeouterBase;
+	class UvAsync;
+	class UvRpcManager;
+	class UvTimeoutManager;
+	class UvUdpListener;
+	class UvUdpBase;
+	class UvUdpPeer;
+	class UvUdpClient;
+	class UvHttpPeer;
+	class UvHttpClient;
 
-struct UvLoop {
-	uv_loop_t uvLoop;
-	xx::MemPool mp;
-	UvLoop() {
-		if (int r = uv_loop_init(&uvLoop)) throw r;
-	}
-	UvLoop(UvLoop const&) = delete;
-	UvLoop& operator=(UvLoop const&) = delete;
+	using UvLoop_u = Unique<UvLoop>;
+	using UvListenerBase_u = Unique<UvListenerBase>;
+	using UvTcpListener_u = Unique<UvTcpListener>;
+	using UvTcpUdpBase_u = Unique<UvTcpUdpBase>;
+	using UvTcpBase_u = Unique<UvTcpBase>;
+	using UvTcpPeer_u = Unique<UvTcpPeer>;
+	using UvTcpClient_u = Unique<UvTcpClient>;
+	using UvTimer_u = Unique<UvTimer>;
+	using UvTimeouterBase_u = Unique<UvTimeouterBase>;
+	using UvTimeouter_u = Unique<UvTimeoutManager>;
+	using UvAsync_u = Unique<UvAsync>;
+	using UvRpcManager_u = Unique<UvRpcManager>;
+	using UvTimeouter_u = Unique<UvTimeoutManager>;
+	using UvUdpListener_u = Unique<UvUdpListener>;
+	using UvUdpBase_u = Unique<UvUdpBase>;
+	using UvUdpPeer_u = Unique<UvUdpPeer>;
+	using UvUdpClient_u = Unique<UvUdpClient>;
 
-	inline int Run(uv_run_mode const& mode = UV_RUN_DEFAULT) noexcept {
-		return uv_run(&uvLoop, mode);
-	}
 
-	template<typename ListenerType>
-	xx::Unique<ListenerType> CreateListener(xx::String const& ip, int const& port, int const& backlog = 128) noexcept;
+	using UvLoop_w = Weak<UvLoop>;
+	using UvListenerBase_w = Weak<UvListenerBase>;
+	using UvTcpListener_w = Weak<UvTcpListener>;
+	using UvTcpUdpBase_w = Weak<UvTcpUdpBase>;
+	using UvTcpBase_w = Weak<UvTcpBase>;
+	using UvTcpPeer_w = Weak<UvTcpPeer>;
+	using UvTcpClient_w = Weak<UvTcpClient>;
+	using UvTimer_w = Weak<UvTimer>;
+	using UvTimeouterBase_w = Weak<UvTimeouterBase>;
+	using UvTimeouter_w = Weak<UvTimeoutManager>;
+	using UvAsync_w = Weak<UvAsync>;
+	using UvRpcManager_w = Weak<UvRpcManager>;
+	using UvTimeouter_w = Weak<UvTimeoutManager>;
+	using UvUdpListener_w = Weak<UvUdpListener>;
+	using UvUdpBase_w = Weak<UvUdpBase>;
+	using UvUdpPeer_w = Weak<UvUdpPeer>;
+	using UvUdpClient_w = Weak<UvUdpClient>;
 
-	template<typename ClientType>
-	xx::Unique<ClientType> CreateClient() noexcept;
 
-	xx::Unique<UvResolver> CreateResolver() noexcept;
-
-	xx::Unique<UvAsync> CreateAsync() noexcept;
-
-	template<typename TimerType = UvTimer>
-	xx::Unique<TimerType> CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire = nullptr) noexcept;
-};
-
-struct UvAsync {
-	uv_async_t* uvAsync = nullptr;
-	std::mutex mtx;
-	xx::Queue<std::function<void()>> actions;
-	std::function<void()> action;
-
-	UvAsync() = default;
-	UvAsync(UvAsync const&) = delete;
-	UvAsync& operator=(UvAsync const&) = delete;
-
-	virtual ~UvAsync() {
-		UvHandleCloseAndFree(uvAsync);
-	}
-	inline int Init(uv_loop_t* const& loop) noexcept {
-		if (uvAsync) return 0;
-		uvAsync = UvAlloc<uv_async_t>(this);
-		if (!uvAsync) return -1;
-		if (int r = uv_async_init(loop, uvAsync, [](uv_async_t* handle) {
-			UvGetSelf<UvAsync>(handle)->Execute();
-		})) {
-			uvAsync = nullptr;
-			return r;
-		}
-		return 0;
-	}
-	int Dispatch(std::function<void()>&& action) noexcept {
-		if (!uvAsync) return -1;
-		{
-			std::scoped_lock<std::mutex> g(mtx);
-			actions.Push(std::move(action));
-		}
-		return uv_async_send(uvAsync);
-	}
-	inline void Execute() noexcept {
-		{
-			std::scoped_lock<std::mutex> g(mtx);
-			action = std::move(actions.Top());
-			actions.Pop();
-		}
-		action();
-	}
-};
-
-struct UvTimer {
-	uv_timer_t* uvTimer = nullptr;
-	std::function<void()> OnFire;
-
-	UvTimer() = default;
-	UvTimer(UvTimer const&) = delete;
-	UvTimer& operator=(UvTimer const&) = delete;
-
-	virtual ~UvTimer() {
-		UvHandleCloseAndFree(uvTimer);
-	}
-	inline int Init(uv_loop_t* const& loop) noexcept {
-		if (uvTimer) return 0;
-		uvTimer = UvAlloc<uv_timer_t>(this);
-		if (!uvTimer) return -1;
-		if (int r = uv_timer_init(loop, uvTimer)) {
-			uvTimer = nullptr;
-			return r;
-		}
-		return 0;
-	}
-	inline int Start(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS) noexcept {
-		if (!uvTimer) return -1;
-		return uv_timer_start(uvTimer, [](uv_timer_t* t) {
-			auto self = UvGetSelf<UvTimer>(t);
-			if (self->OnFire) {
-				self->OnFire();
-			}
-		}, timeoutMS, repeatIntervalMS);
-	}
-	inline int Stop() noexcept {
-		if (!uvTimer) return -1;
-		return uv_timer_stop(uvTimer);
-	}
-	inline int Again() noexcept {
-		if (!uvTimer) return -1;
-		return uv_timer_again(uvTimer);
-	}
-};
-
-struct UvResolver;
-struct uv_getaddrinfo_t_ex {
-	uv_getaddrinfo_t req;
-	xx::Weak<UvResolver> resolver_w;
-};
-
-struct UvResolver {
-	UvLoop& loop;
-	uv_getaddrinfo_t_ex* req = nullptr;
-	xx::Unique<UvTimer> timeouter;
-	xx::List<xx::String> ips;
-	std::function<void()> OnFinish;
-	std::function<void()> OnTimeout;
-#ifdef __IPHONE_OS_VERSION_MIN_REQUIRED
-	addrinfo hints;
-#endif
-
-	UvResolver(UvLoop& loop) noexcept
-		: loop(loop)
-		, ips(&loop.mp)
+	enum class UvTcpStates
 	{
-#ifdef __IPHONE_OS_VERSION_MIN_REQUIRED
-		hints.ai_family = PF_UNSPEC;
-		hints.ai_socktype = SOCK_STREAM;
-		hints.ai_protocol = 0;// IPPROTO_TCP;
-		hints.ai_flags = AI_DEFAULT;
-#endif
-	}
-
-	UvResolver(UvResolver const&) = delete;
-	UvResolver& operator=(UvResolver const&) = delete;
-
-	virtual ~UvResolver() {
-		Cleanup();
-	}
-
-	inline void Cleanup() {
-		ips.Clear();
-		timeouter.Reset();
-		if (req) {
-			uv_cancel((uv_req_t*)req);
-			req = nullptr;
-		}
-	}
-
-	inline int SetTimeout(uint64_t const& timeoutMS = 0) {
-		if (!timeoutMS) return 0;
-		timeouter = loop.CreateTimer<UvTimer>(timeoutMS, 0, [self_w = xx::Weak<UvResolver>(this)] {
-			if (self_w) {
-				auto self = self_w.pointer;
-				self->Cleanup();
-				if (self->OnTimeout) {
-					self->OnTimeout();
-				}
-			}
-		});
-		return timeouter ? 0 : -1;
-	}
-
-	inline int Resolve(xx::String const& domainName, uint64_t const& timeoutMS = 0) noexcept {
-		if (int r = SetTimeout(timeoutMS)) return r;
-
-		auto req = std::make_unique<uv_getaddrinfo_t_ex>();
-		req->resolver_w = this;
-		if (int r = uv_getaddrinfo((uv_loop_t*)&loop.uvLoop, (uv_getaddrinfo_t*)&req->req, [](uv_getaddrinfo_t* req_, int status, struct addrinfo* ai) {
-			auto req = std::unique_ptr<uv_getaddrinfo_t_ex>(container_of(req_, uv_getaddrinfo_t_ex, req));
-			if (!req->resolver_w) return;
-			if (status) return;													// error or -4081 canceled
-			auto resolver = req->resolver_w.pointer;
-			assert(ai);
-
-			auto& ips = resolver->ips;
-			xx::String s(&resolver->loop.mp);
-			do {
-				s.Resize(64);
-				if (ai->ai_addr->sa_family == AF_INET6) {
-					uv_ip6_name((sockaddr_in6*)ai->ai_addr, s.buf, s.bufLen);
-				}
-				else {
-					uv_ip4_name((sockaddr_in*)ai->ai_addr, s.buf, s.bufLen);
-				}
-				s.Resize(strlen(s.buf));
-
-				if (ips.Find(s) == size_t(-1))
-					ips.Add(std::move(s));								// known issue: ios || android will receive duplicate result
-				}
-				ai = ai->ai_next;
-			} while (ai);
-			uv_freeaddrinfo(ai);
-
-			resolver->timeouter.Reset();
-			resolver->Finish();
-
-		}, ((xx::String&)domainName).c_str(), nullptr,
-#ifdef __IPHONE_OS_VERSION_MIN_REQUIRED
-		(const addrinfo*)hints
-#else
-			nullptr
-#endif
-			)) return r;
-		this->req = req.release();
-		return 0;
-	}
-
-	inline virtual void Finish() noexcept {
-		if (OnFinish) {
-			OnFinish();
-		}
-	}
-};
-
-struct UvTcp {
-	uv_tcp_t* uvTcp = nullptr;
-
-	inline bool Disposed() noexcept {
-		return uvTcp == nullptr;
-	}
-
-	inline int Init(uv_loop_t* const& loop) noexcept {
-		if (uvTcp) return 0;
-		uvTcp = UvAlloc<uv_tcp_t>(this);
-		if (!uvTcp) return -1;
-		if (int r = uv_tcp_init(loop, uvTcp)) {
-			uvTcp = nullptr;
-			return r;
-		}
-		return 0;
-	}
-	virtual ~UvTcp() {
-		UvHandleCloseAndFree(uvTcp);
-	}
-};
-
-struct UvTcpBasePeer;
-struct uv_write_t_ex : uv_write_t {
-	uv_buf_t buf;
-};
-
-struct UvTcpBasePeer : UvTcp {
-	std::function<int(uint8_t const* const& buf, uint32_t const& len)> OnReceive;
-	std::function<void()> OnDisconnect;
-
-	UvTcpBasePeer() = default;
-	UvTcpBasePeer(UvTcpBasePeer const&) = delete;
-	UvTcpBasePeer& operator=(UvTcpBasePeer const&) = delete;
-
-	inline virtual void Dispose(bool callback = true) noexcept {
-		if (!uvTcp) return;
-		UvHandleCloseAndFree(uvTcp);
-		if (callback && OnDisconnect) {
-			OnDisconnect();
-		}
-	}
-
-	inline int ReadStart() noexcept {
-		if (!uvTcp) return -1;
-		return uv_read_start((uv_stream_t*)uvTcp, [](uv_handle_t* h, size_t suggested_size, uv_buf_t* buf) {
-			buf->base = (char*)malloc(suggested_size);
-			buf->len = decltype(uv_buf_t::len)(suggested_size);
-		}, [](uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
-			auto self = UvGetSelf<UvTcpBasePeer>(stream);
-			if (nread > 0) {
-				nread = self->Unpack((uint8_t*)buf->base, (uint32_t)nread);
-			}
-			free(buf->base);
-			if (nread < 0) {
-				self->Dispose();	// call OnDisconnect
-			}
-		});
-	}
-
-	inline int Send(uv_write_t_ex* const& req) noexcept {
-		if (!uvTcp) return -1;
-		// todo: check send queue len ? protect?  uv_stream_get_write_queue_size((uv_stream_t*)uvTcp);
-		int r = uv_write(req, (uv_stream_t*)uvTcp, &req->buf, 1, [](uv_write_t *req, int status) {
-			free(req);
-		});
-		if (r) Dispose(false);	// do not call OnDisconnect
-		return r;
-	}
-
-	inline int Send(uint8_t const* const& buf, ssize_t const& dataLen) noexcept {
-		if (!uvTcp) return -1;
-		auto req = (uv_write_t_ex*)malloc(sizeof(uv_write_t_ex) + dataLen);
-		memcpy(req + 1, buf, dataLen);
-		req->buf.base = (char*)(req + 1);
-		req->buf.len = decltype(uv_buf_t::len)(dataLen);
-		return Send(req);
-	}
-
-	virtual int Unpack(uint8_t const* const& buf, uint32_t const& len) noexcept {
-		return OnReceive ? OnReceive(buf, len) : 0;
-	}
-};
-
-struct UvTcpBaseListener : UvTcp {
-	std::function<xx::Unique<UvTcpBasePeer>()> OnCreatePeer;
-	std::function<void(xx::Unique<UvTcpBasePeer>&& peer)> OnAccept;
-
-	UvTcpBaseListener() = default;
-	UvTcpBaseListener(UvTcpBaseListener const&) = delete;
-	UvTcpBaseListener& operator=(UvTcpBaseListener const&) = delete;
-
-	inline virtual xx::Unique<UvTcpBasePeer> CreatePeer() noexcept {
-		return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpBasePeer>();
-	}
-	inline virtual void Accept(xx::Unique<UvTcpBasePeer>&& peer) noexcept {
-		if (OnAccept) {
-			OnAccept(std::move(peer));
-		}
+		Disconnected,
+		Connecting,
+		Connected,
+		Disconnecting,
 	};
-};
 
-template<typename ListenerType>
-inline xx::Unique<ListenerType> UvLoop::CreateListener(xx::String const& ip, int const& port, int const& backlog) noexcept {
-	auto listener = std::make_shared<ListenerType>();
-	if (listener->Init(&uvLoop)) return nullptr;
+	enum class UvRunMode
+	{
+		Default,
+		Once,
+		NoWait
+	};
 
-	sockaddr_in6 addr;
-	if (ip.find(':') == xx::String::npos) {								// ipv4
-		if (uv_ip4_addr(ip.c_str(), port, (sockaddr_in*)&addr)) return nullptr;
-	}
-	else {																	// ipv6
-		if (uv_ip6_addr(ip.c_str(), port, &addr)) return nullptr;
-	}
-	if (uv_tcp_bind(listener->uvTcp, (sockaddr*)&addr, 0)) return nullptr;
+	class UvDnsVisitor : public Object
+	{
+	public:
+		UvLoop& loop;
+		String_p domainName;
+		int indexAtDict = -1;
+		std::function<void(List<String_p>*)> cb;
+		xx::Weak<UvTimer> timeouter;
+		List<String_p> results;
 
-	if (uv_listen((uv_stream_t*)listener->uvTcp, backlog, [](uv_stream_t* server, int status) {
-		if (status) return;
-		auto self = UvGetSelf<ListenerType>(server);
-		auto peer = self->CreatePeer();
-		if (!peer || peer->Init(server->loop)) return;
-		if (uv_accept(server, (uv_stream_t*)peer->uvTcp)) return;
-		if (peer->ReadStart()) return;
-		self->Accept(std::move(peer));
-	})) return nullptr;
+		void* hints = nullptr;
+		void* resolver = nullptr;
+		static void OnResolvedCBImpl(void *resolver, int status, void *res);
 
-	return listener;
+		UvDnsVisitor(UvLoop* const& loop, String_p& domainName, std::function<void(List<String_p>*)>&& cb, int timeoutMS = 0);
+		~UvDnsVisitor();
+	};
+
+
+	class UvLoop : public Object
+	{
+	public:
+		void* ptr = nullptr;
+		List<UvTcpListener*> tcpListeners;
+		List<UvTcpClient*> tcpClients;
+		List<UvUdpListener*> udpListeners;
+		List<UvUdpClient*> udpClients;
+		List<UvTimer*> timers;
+		List<UvAsync*> asyncs;
+		Dict<String_p, UvDnsVisitor*> dnsVisitors;
+		UvTimeoutManager* timeoutManager = nullptr;
+		UvRpcManager* rpcMgr = nullptr;
+		UvTimer* udpTimer = nullptr;
+		uint32_t udpTicks = 0;
+		std::array<char, 65536> udpRecvBuf;
+		uint32_t kcpInterval = 0;
+
+		explicit UvLoop(MemPool* const& mp);
+		~UvLoop() noexcept;
+
+		int InitPeerTimeoutManager(uint64_t const& intervalMS = 1000, int const& wheelLen = 6, int const& defaultInterval = 5) noexcept;
+		int InitRpcTimeoutManager(uint64_t const& rpcIntervalMS = 1000, int const& rpcDefaultInterval = 5) noexcept;
+		int InitKcpFlushInterval(uint32_t const& interval = 10) noexcept;
+
+		int Run(UvRunMode const& mode = UvRunMode::Default) noexcept;
+		void Stop() noexcept;
+		bool Alive() const noexcept;
+
+
+		// 根据域名得到 ip 列表. 超时触发空值回调. 如果反复针对相同域名发起查询, 且上次的查询还没触发回调, 将返回 false.
+		bool GetIPList(char const* const& domainName, std::function<void(List<String_p>*)>&& cb, int timeoutMS = 0);
+
+
+		// 延迟执行, 以实现执行 需要出了当前函数才能执行的代码. 本质是 timeoutMS, 0 的 timer, 函数执行过后 timer 将自杀. 如果 timer 创建失败将返回非 0.
+		int DelayExecute(std::function<void()>&& func, int const& timeoutMS = 0) noexcept;
+
+		// 创建一个 tcp client 并解析域名 & 连接指定端口. 多 ip 域名将返回最快连上的. 超时时间可能因域名解析而比指定的要长. 不会超过两倍
+		// 如果域名解析失败, 所有ip全都连不上, 超时, 回调将传入空.
+		// domainName 也可以直接就是一个 ip. 这样会达到在 ipv6 协议栈下自动转换 ip 格式的目的
+		// 同时, 对 apple 手机应用来讲, 调用本函数 或 GetIPList 可达到弹出网络权限请求面板的效果
+		// 如果反复针对相同域名发起查询, 且上次的查询还没触发回调, 将返回 false.
+		bool CreateTcpClientEx(char const* const& domainName, int const& port, std::function<void(UvTcpClient_w)>&& cb, int const& timeoutMS = 0) noexcept;
+
+		// 这组 create 都是建一个初始对象
+		UvTcpListener_w CreateTcpListener() noexcept;
+		UvTcpClient_w CreateTcpClient() noexcept;
+		UvUdpListener_w CreateUdpListener() noexcept;
+		UvUdpClient_w CreateUdpClient() noexcept;
+		UvTimer_w CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& OnFire = nullptr) noexcept;
+		UvAsync_w CreateAsync() noexcept;
+	};
+
+	class UvOnDispose : public Object
+	{
+	public:
+		using Object::Object;
+		std::function<void()> OnDispose;
+		bool disposed = false;
+		virtual void CallOnDispose() noexcept;
+	};
+
+	class UvListenerBase : public UvOnDispose
+	{
+	public:
+		UvLoop& loop;
+		size_t index_at_container = -1;
+
+		void* ptr = nullptr;
+		void* addrPtr = nullptr;
+
+		UvListenerBase(UvLoop& loop);
+	};
+
+	class UvTcpListener : public UvListenerBase
+	{
+	public:
+		std::function<UvTcpPeer*()> OnCreatePeer;
+		std::function<void(UvTcpPeer_w)> OnAccept;
+		List<UvTcpPeer*> peers;
+
+		UvTcpListener(UvLoop& loop);
+		~UvTcpListener() noexcept;
+
+		static void OnAcceptCB(void* server, int status) noexcept;
+		int Bind(char const* const& ipv4, int const& port) noexcept;
+		int Bind6(char const* const& ipv6, int const& port) noexcept;
+		int Listen(int const& backlog = 128) noexcept;
+	};
+
+	class UvTimeouterBase : public UvOnDispose
+	{
+	public:
+		UvTimeouterBase(MemPool* const& mp);
+		~UvTimeouterBase() noexcept;
+		UvTimeoutManager* timeoutManager = nullptr;
+		UvTimeouterBase* timeouterPrev = nullptr;
+		UvTimeouterBase* timeouterNext = nullptr;
+		int timeouterIndex = -1;
+		std::function<void()> OnTimeout;
+
+		void TimeouterClear() noexcept;
+		void TimeoutReset(int const& interval = 0) noexcept;
+		void TimeouterStop() noexcept;
+		virtual void BindTimeoutManager(UvTimeoutManager* const&) noexcept;
+		void UnbindTimeoutManager() noexcept;
+		bool Timeouting() noexcept;
+	};
+
+	class UvTcpUdpBase : public UvTimeouterBase
+	{
+	public:
+		using BaseType = UvTimeouterBase;
+
+		// 可以随便存点啥, 减少对继承的需求
+		Object_p userObject;
+		void* userData = nullptr;
+		int64_t userNumber = 0;
+
+		std::function<void(BBuffer&)> OnReceivePackage;
+
+		// uint32_t: 流水号
+		std::function<void(uint32_t, BBuffer&)> OnReceiveRequest;
+
+		// 重写以确保先于 OnDispose 发起 RpcTraceCallback
+		void CallOnDispose() noexcept override;
+
+
+		// 由于路由服务需要保持 routingAddress 为空, 在收到 Routing 包时, 可抛出 OnReceiveRouting, 以便进一步用相应的 client 转发
+		// 如果 routingAddress 非空, 在收到 Routing 包时, 可抛出 OnReceivePackage, OnReceiveRequest 或 触发 RPC 回调.
+		// 不同的是, senderAddress 将被填充返回地址. 故可根据它来判断 接收事件 属于何种数据来源.
+		String routingAddress;
+		String senderAddress;
+
+		// (BBuffer& bb, size_t pkgOffset, size_t pkgLen, size_t addrOffset, size_t addrLen)
+		// 3 个 size_t 代表 含包头的总包长, 地址起始偏移, 地址长度( 方便替换地址并 memcpy )
+		// BBuffer 的 offset 停在包头起始处
+		std::function<void(BBuffer&, size_t, size_t, size_t)> OnReceiveRouting;
+
+
+		UvLoop& loop;
+		size_t index_at_container = -1;
+
+		void* ptr = nullptr;
+		void* addrPtr = nullptr;
+
+		BBuffer bbRecv;
+		BBuffer bbSend;
+
+
+		// 用来放 serial 以便断线时及时发起 Request 超时回调
+		HashSet_p<uint32_t> rpcSerials;
+
+
+		UvTcpUdpBase(UvLoop& loop);
+
+		virtual void BindTimeoutManager(UvTimeoutManager* const& t = nullptr) noexcept;
+
+		virtual void DisconnectImpl() noexcept = 0;
+		virtual bool Disconnected() noexcept = 0;
+		virtual size_t GetSendQueueSize() noexcept = 0;
+		virtual int SendBytes(char const* const& inBuf, int const& len = 0) noexcept = 0;
+
+		virtual void ReceiveImpl(char const* const& bufPtr, int const& len) noexcept;
+
+		int SendBytes(BBuffer& bb) noexcept;
+
+
+
+		// 三种常用 Send 函数
+
+		// 返回 <0 表示失败, 0 成功
+		template<typename T>
+		int Send(T const& pkg) noexcept;
+
+		// 返回 0 表示失败, 非 0 为本次生成的 serial
+		template<typename T>
+		uint32_t SendRequest(T const& pkg, std::function<void(uint32_t, BBuffer*)>&& cb, int const& interval = 0) noexcept;
+
+		// 返回 <0 表示失败, 0 成功
+		template<typename T>
+		int SendResponse(uint32_t const& serial, T const& pkg) noexcept;
+
+
+
+		// 下面是上面 3 个 Send 的 Routing 版( 客户端, 非路由服务端专用 )
+
+		// 向路由服务发包
+		template<typename T>
+		int SendRouting(char const* const& serviceAddr, size_t const& serviceAddrLen, T const& pkg) noexcept;
+
+		// 向路由服务发请求
+		template<typename T>
+		uint32_t SendRoutingRequest(char const* const& serviceAddr, size_t const& serviceAddrLen, T const& pkg, std::function<void(uint32_t, BBuffer*)>&& cb, int const& interval = 0) noexcept;
+
+		// 向路由服务发回应
+		template<typename T>
+		int SendRoutingResponse(char const* const& serviceAddr, size_t const& serviceAddrLen, uint32_t const& serial, T const& pkg) noexcept;
+
+
+
+		// 下面是路由服务专用
+
+		// 纯下发地址. 
+		int SendRoutingAddress(char const* const& buf, size_t const& len) noexcept;
+
+		// 读出上面函数下发的地址长度
+		static size_t GetRoutingAddressLength(BBuffer& bb) noexcept;
+
+		// 在不解析数据的情况下直接替换地址部分转发( 路由专用 )
+		int SendRoutingByRouter(BBuffer& bb, size_t const& pkgLen, size_t const& addrOffset, size_t const& addrLen, char const* const& senderAddr, size_t const& senderAddrLen) noexcept;
+
+
+
+		// 超时回调所有被跟踪 rpc 流水号并清空( 内部函数. 会自动在 OnDispose, OnDisconnect 事件前调用以触发超时回调 )
+		void RpcTraceCallback() noexcept;
+
+		// 增强的 SendRequest 实现 断线时 立即发起相关 rpc 超时回调. 封装了解包操作. 
+		template<typename T>
+		uint32_t SendRequestEx(T const& pkg, std::function<void(Object_p&)>&& cb, int const& interval = 0) noexcept;
+
+		// 清除掉 OnReceiveXxxxxx, OnDispose 的各种事件
+		void ClearHandlers() noexcept;
+
+		// 会清除掉 OnReceiveXxxxxx, OnDispose 的各种事件, BindTimeoutManager 并在 OnTimeout 时 Release
+		void DelayRelease(int const& interval = 0, bool const& clearHandlers = false) noexcept;
+	};
+
+	class UvTcpBase : public UvTcpUdpBase
+	{
+	public:
+		UvTcpBase(UvLoop& loop);
+
+		// 存储最后一次发送的数据的指针及长度( 便于群发 )
+		std::pair<char const*, int> lastSendData;
+
+		size_t GetSendQueueSize() noexcept override;
+		int SendBytes(char const* const& inBuf, int const& len = 0) noexcept override;
+		// todo: SendBytes 支持传入 BBuffer_p 以利于群发, 支持直接拿走 bb 的内存免 copy
+
+		static void OnReadCBImpl(void* stream, ptrdiff_t nread, const void* buf_t) noexcept;
+	};
+
+	class UvTcpPeer : public UvTcpBase
+	{
+	public:
+		UvTcpListener & listener;
+		UvTcpPeer(UvTcpListener& listener);
+		~UvTcpPeer() noexcept;
+		void DisconnectImpl() noexcept override;
+		bool Disconnected() noexcept override;
+		std::array<char, 64> ipBuf;
+		const char* Ip(bool includePort = true) noexcept;
+	};
+
+	class UvTcpClient : public UvTcpBase
+	{
+	public:
+		std::function<void(int)> OnConnect;	// int state 为 0 表示连接成功, 非 0 表示错误码
+		std::function<void()> OnDisconnect;	// 唯有 state 从 Connected 变为 Disconnected 时才触发. 包括自己执行 Disconnect 函数. 要小心逻辑递归
+		xx::Weak<UvTimer> connTimeouter;	// 超时 cancel 后 uv 还是会产生 OnConnectCBImpl 的回调
+		UvTcpStates state = UvTcpStates::Disconnected;
+
+		// 重写以确保先于 OnDispose 发起 RpcTraceCallback + Disconnect( OnDisconnect )
+		void CallOnDispose() noexcept override;
+
+		void* req = nullptr;			// 延迟删除
+		UvTcpClient(UvLoop& loop);
+		~UvTcpClient() noexcept;
+		bool Alive() const noexcept;	// state == UvTcpStates::Connected, 并不能取代外部野指针检测
+		int SetAddress(char const* const& ipv4, int const& port) noexcept;
+		int SetAddress6(char const* const& ipv6, int const& port) noexcept;
+		static void OnConnectCBImpl(void* req, int status) noexcept;
+		int Connect(int const& timeoutMS = 0) noexcept;
+		int ConnectEx(char const* const& ipv4, int const& port, int const& timeoutMS = 0) noexcept;	// 等同于 SetAddress + Connect
+		int Connect6Ex(char const* const& ipv6, int const& port, int const& timeoutMS = 0) noexcept;	// 等同于 SetAddress6 + Connect
+		void Disconnect(bool runCallback = true) noexcept;
+		void DisconnectImpl() noexcept override;
+		bool Disconnected() noexcept override;
+	};
+
+	class UvTimer : public Object
+	{
+	public:
+		std::function<void()> OnFire;
+
+		UvLoop& loop;
+		size_t index_at_container = -1;
+		void* ptr = nullptr;
+		UvTimer(UvLoop& loop, uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& OnFire = nullptr);
+		~UvTimer() noexcept;
+		static void OnTimerCBImpl(void* handle) noexcept;
+		void SetRepeat(uint64_t const& repeatIntervalMS) noexcept;
+		int Again() noexcept;
+		int Stop() noexcept;
+	};
+
+	class UvTimeoutManager : public Object
+	{
+	public:
+		UvTimer_w timer;
+		List<UvTimeouterBase*> timeouterss;
+		int cursor = 0;
+		int defaultInterval;
+		UvTimeoutManager(UvLoop& loop, uint64_t const& intervalMS, int const& wheelLen, int const& defaultInterval);
+		~UvTimeoutManager() noexcept;
+		void Process() noexcept;
+		void Clear() noexcept;
+		void Add(UvTimeouterBase* const& t, int interval = 0) noexcept;
+		void Remove(UvTimeouterBase* const& t) noexcept;
+		void AddOrUpdate(UvTimeouterBase* const& t, int const& interval = 0) noexcept;
+	};
+
+	class UvAsync : public UvOnDispose
+	{
+	public:
+		std::function<void()> OnFire;
+
+		UvLoop& loop;
+		size_t index_at_container = -1;
+		std::mutex mtx;
+		Queue<std::function<void()>> actions;
+		void* ptr = nullptr;
+		UvAsync(UvLoop& loop);
+		~UvAsync() noexcept;
+		static void OnAsyncCBImpl(void* handle) noexcept;
+		int Dispatch(std::function<void()>&& a) noexcept;
+		void OnFireImpl() noexcept;
+	};
+
+	class UvRpcManager : public Object
+	{
+	public:
+		UvTimer_w timer;
+		uint32_t serial = 0;
+		Dict<uint32_t, std::function<void(uint32_t, BBuffer*)>> mapping;
+		Queue<std::pair<int, uint32_t>> serials;
+		int defaultInterval = 0;
+		int ticks = 0;
+		UvRpcManager(UvLoop& loop, uint64_t const& intervalMS, int const& defaultInterval);
+		~UvRpcManager() noexcept;
+		void Process() noexcept;
+		uint32_t Register(std::function<void(uint32_t, BBuffer*)>&& cb, int interval = 0) noexcept;
+		void Unregister(uint32_t const& serial) noexcept;
+		void Callback(uint32_t const& serial, BBuffer* const& bb) noexcept;
+		size_t Count() noexcept;
+	};
+
+	class UvUdpListener : public UvListenerBase
+	{
+	public:
+		std::function<UvUdpPeer*(Guid const&)> OnCreatePeer;
+		std::function<void(UvUdpPeer_w)> OnAccept;
+		Dict<Guid, UvUdpPeer*> peers;
+
+		UvUdpListener(UvLoop& loop);
+		~UvUdpListener() noexcept;
+		static void OnRecvCBImpl(void* udp, ptrdiff_t nread, void* buf_t, void* addr, uint32_t flags) noexcept;
+		void OnReceiveImpl(char const* const& bufPtr, int const& len, void* const& addr) noexcept;
+
+		int Bind(char const* const& ipv4, int const& port) noexcept;
+		int Bind6(char const* const& ipv6, int const& port) noexcept;
+		int Listen() noexcept;
+		int StopListen() noexcept;
+
+		UvUdpPeer_w CreatePeer(Guid const& g
+			, int const& sndwnd = 128, int const& rcvwnd = 128
+			, int const& nodelay = 1/*, int const& interval = 10*/, int const& resend = 2, int const& nc = 1, int const& minrto = 100) noexcept;
+	};
+
+	class UvUdpBase : public UvTcpUdpBase
+	{
+	public:
+		Guid guid;
+		uint32_t nextUpdateTicks = 0;
+		UvUdpBase(UvLoop& loop);
+	};
+
+	class UvUdpPeer : public UvUdpBase
+	{
+	public:
+		UvUdpListener & listener;
+
+		UvUdpPeer(UvUdpListener& listener
+			, Guid const& g = Guid()
+			, int const& sndwnd = 128, int const& rcvwnd = 128
+			, int const& nodelay = 1/*, int const& interval = 10*/, int const& resend = 2, int const& nc = 1, int const& minrto = 100);
+		~UvUdpPeer() noexcept;
+
+		static int OutputImpl(char const* buf, int len, void* kcp) noexcept;
+		void Update(uint32_t const& current) noexcept;
+		int Input(char const* const& data, int const& len) noexcept;
+		int SendBytes(char const* const& data, int const& len = 0) noexcept override;
+		void DisconnectImpl() noexcept override;
+		size_t GetSendQueueSize() noexcept override;
+		bool Disconnected() noexcept override;
+
+		std::array<char, 64> ipBuf;
+		const char* Ip(bool includePort = true) noexcept;
+	};
+
+	class UvUdpClient : public UvUdpBase
+	{
+	public:
+		void* kcpPtr = nullptr;
+		UvUdpClient(UvLoop& loop);
+		~UvUdpClient() noexcept;
+
+		int Connect(Guid const& guid
+			, int const& sndwnd = 128, int const& rcvwnd = 128
+			, int const& nodelay = 1/*, int const& interval = 10*/, int const& resend = 2, int const& nc = 1, int const& minrto = 100) noexcept;
+
+		static void OnRecvCBImpl(void* udp, ptrdiff_t nread, void* buf_t, void* addr, uint32_t flags) noexcept;
+		void OnReceiveImpl(char const* const& bufPtr, int const& len, void* const& addr) noexcept;
+		static int OutputImpl(char const* buf, int len, void* kcp) noexcept;
+		void Update(uint32_t const& current) noexcept;
+		void Disconnect() noexcept;
+		int SetAddress(char const* const& ipv4, int const& port) noexcept;
+		int SetAddress6(char const* const& ipv6, int const& port) noexcept;
+		int SendBytes(char const* const& data, int const& len = 0) noexcept override;
+		void DisconnectImpl() noexcept override;
+		bool Disconnected() noexcept override;
+		size_t GetSendQueueSize() noexcept override;
+	};
+
+
+	typedef struct http_parser http_parser;
+	typedef struct http_parser_settings http_parser_settings;
+
+	class UvHttpPeer : public UvTcpPeer
+	{
+	public:
+		// 来自 libuv 的转换器及配置
+		http_parser_settings* parser_settings = nullptr;
+		http_parser* parser = nullptr;
+
+		// GET / POST / ...
+		String method;
+
+		// 头部所有键值对
+		Dict<String, String> headers;
+
+		// 是否保持连接
+		bool keepAlive = false;
+
+		// 正文
+		String body;
+
+		// 原始 url 串( 未 urldecode 解码 )
+		String url;
+
+		// url decode 后的结果 url 串, 同时也是 url parse 后的容器, 不可以修改内容
+		String urlDecoded;
+
+		// ParseUrl 后将填充下面三个属性
+		char* path = nullptr;
+		List<std::pair<char*, char*>> queries;	// 键值对
+		char* fragment = nullptr;
+
+		// 原始 status 串
+		String status;
+
+		// 当收到 key 时, 先往这 append. 出现 value 时再塞 headers
+		String lastKey;
+
+		// 指向最后一次塞入 headers 的 value 以便 append
+		String* lastValue = nullptr;
+
+		// 成功接收完一段信息时的回调.
+		std::function<void()> OnReceiveHttp;
+
+		// 接收出错回调. 接着会发生 Release
+		std::function<void(uint32_t errorNumber, char const* errorMessage)> OnError;
+
+		// 原始数据( 如果不为空, 收到数据时将向它追加, 方便调试啥的 )
+		String_p rawData;
+
+		// 可用于堆砌返回数据
+		String s;
+
+		UvHttpPeer(UvTcpListener& listener);
+		~UvHttpPeer() noexcept;
+
+		virtual void ReceiveImpl(char const* const& bufPtr, int const& len) noexcept override;
+
+		// todo: 提供更多返回内容的简单拼接下发
+		inline static const std::string responsePartialHeader_text = 
+			"HTTP/1.1 200 OK\r\n"
+			"Content-Type: text/plain;charset=utf-8\r\n"		// text/json
+			"Content-Length: "
+			;
+
+		// 发送 buf
+		void SendHttpResponse(char const* const& bufPtr, size_t const& len) noexcept;
+
+		// 会发送 o ToString 后的结果
+		template<typename T>
+		void SendHttpResponse(T const& o) noexcept;
+
+		void SendHttpResponse() noexcept;	// 会发送 s 的内容
+
+		// 会 urldecode 并 填充 path, queries, fragment
+		void ParseUrl() noexcept;
+	};
+
+	// 代码从 UvHttpPeer 复制小改
+	class UvHttpClient : public UvTcpClient
+	{
+	public:
+		// 来自 libuv 的转换器及配置
+		http_parser_settings* parser_settings = nullptr;
+		http_parser* parser = nullptr;
+
+		// 头部所有键值对
+		Dict<String, String> headers;
+
+		// 是否保持连接
+		bool keepAlive = false;
+
+		// 正文
+		String body;
+
+		// 原始 url 串
+		String url;
+
+		// 原始 status 串
+		String status;
+
+		// 当收到 key 时, 先往这 append. 出现 value 时再塞 headers
+		String lastKey;
+
+		// 指向最后一次塞入 headers 的 value 以便 append
+		String* lastValue = nullptr;
+
+		// 成功接收完一段信息时的回调.
+		std::function<void()> OnReceiveHttp;
+
+		// 接收出错回调. 接着会发生 Release
+		std::function<void(uint32_t errorNumber, char const* errorMessage)> OnError;
+
+		// 原始数据( 如果不为空, 收到数据时将向它追加, 方便调试啥的 )
+		String_p rawData;
+
+		UvHttpClient(UvLoop& loop);
+		~UvHttpClient() noexcept;
+
+		virtual void ReceiveImpl(char const* const& bufPtr, int const& len) noexcept override;
+
+		// todo: 提供更多请求串拼接函数 以便于使用
+	};
+
+
+
+
+
 }
 
-struct UvTcpBaseClient;
-struct uv_connect_t_ex {
-	uv_connect_t req;
-	xx::Unique<UvTcpBasePeer> peer;		// temp holder
-	xx::Weak<UvTcpBaseClient> client_w;	// weak ref
-	int serial;
-	int batchNumber;
-	~uv_connect_t_ex();
-};
-
-struct UvTcpBaseClient {
-	UvLoop& loop;
-	int serial = 0;
-	std::unordered_map<int, uv_connect_t_ex*> reqs;
-	int batchNumber = 0;
-	xx::Unique<UvTimer> timeouter;		// singleton holder
-	xx::Unique<UvTcpBasePeer> peer;	// singleton holder
-
-	std::function<xx::Unique<UvTcpBasePeer>()> OnCreatePeer;
-	std::function<void()> OnConnect;
-	std::function<void()> OnTimeout;
-
-	UvTcpBaseClient(UvLoop& loop) noexcept : loop(loop) {}
-	UvTcpBaseClient(UvTcpBaseClient const&) = delete;
-	UvTcpBaseClient& operator=(UvTcpBaseClient const&) = delete;
-
-	virtual ~UvTcpBaseClient() {
-		Cleanup();
-	}
-
-	inline void Cleanup(bool resetPeer = true) {
-		timeouter.Reset();
-		if (resetPeer) {
-			peer.Reset();
-		}
-		for (decltype(auto) kv : reqs) {
-			uv_cancel((uv_req_t*)kv.second);
-		}
-		reqs.clear();
-		++batchNumber;
-	}
-
-	inline int SetTimeout(uint64_t const& timeoutMS = 0) {
-		if (!timeoutMS) return 0;
-		timeouter = loop.CreateTimer<UvTimer>(timeoutMS, 0, [self_w = xx::Weak<UvTcpBaseClient>(this)]{
-			if (auto self = self_w.Lock()) {
-				self->Cleanup(false);
-				if (!self->peer && self->OnTimeout) {
-					self->OnTimeout();
-				}
-			}
-			});
-		return timeouter ? 0 : -1;
-	}
-
-	inline int Dial(xx::String const& ip, int const& port, uint64_t const& timeoutMS = 0, bool cleanup = true) noexcept {
-		if (cleanup) {
-			Cleanup();
-		}
-
-		sockaddr_in6 addr;
-		if (ip.Find(':') == size_t(-1)) {										// ipv4
-			if (int r = uv_ip4_addr(((xx::String&)ip).c_str(), port, (sockaddr_in*)&addr)) return r;
-		}
-		else {																	// ipv6
-			if (int r = uv_ip6_addr(((xx::String&)ip).c_str(), port, &addr)) return r;
-		}
-
-		if (int r = SetTimeout(timeoutMS)) return r;
-
-		auto req = std::make_unique<uv_connect_t_ex>();
-		req->peer = CreatePeer();
-		if (req->peer->Init(&loop.uvLoop)) return -2;
-
-		req->client_w = xx::Weak<UvTcpBaseClient>(this)();
-		req->serial = ++serial;
-		req->batchNumber = batchNumber;
-
-		if (uv_tcp_connect(&req->req, req->peer->uvTcp, (sockaddr*)&addr, [](uv_connect_t* conn, int status) {
-			auto req = std::unique_ptr<uv_connect_t_ex>(container_of(conn, uv_connect_t_ex, req));
-			auto client = req->client_w.lock();
-			if (!client) return;
-			if (status) return;													// error or -4081 canceled
-			if (client->batchNumber > req->batchNumber) return;
-			if (client->peer) return;											// only fastest connected peer can survival
-
-			if (req->peer->ReadStart()) return;
-			client->peer = std::move(req->peer);								// connect success
-			client->timeouter.reset();
-			client->Connect();
-		})) return -3;
-
-		reqs[serial] = req.release();
-		return 0;
-	}
-
-	inline int Dial(xx::List<xx::String> const& ips, int const& port, uint64_t const& timeoutMS = 0) noexcept {
-		Cleanup();
-		if (int r = SetTimeout(timeoutMS)) return r;
-		for (decltype(auto) ip : ips) {
-			Dial(ip, port, 0, false);
-		}
-	}
-	inline int Dial(xx::List<std::pair<xx::String, int>> const& ipports, uint64_t const& timeoutMS = 0) noexcept {
-		Cleanup();
-		if (int r = SetTimeout(timeoutMS)) return r;
-		for (decltype(auto) ipport : ipports) {
-			Dial(ipport.first, ipport.second, 0, false);
-		}
-	}
-
-	inline virtual xx::Unique<UvTcpBasePeer> CreatePeer() noexcept {
-		return std::make_shared<UvTcpBasePeer>();
-	}
-	inline virtual void Connect() noexcept {
-		if (OnConnect) {
-			OnConnect();
-		}
-	}
-};
-
-inline uv_connect_t_ex::~uv_connect_t_ex() {
-	if (auto client = client_w.lock()) {
-		client->reqs.erase(serial);
-	}
-}
-
-template<typename ClientType>
-inline xx::Unique<ClientType> UvLoop::CreateClient() noexcept {
-	return std::make_shared<ClientType>(*this);
-}
-
-inline xx::Unique<UvResolver> UvLoop::CreateResolver() noexcept {
-	return std::make_shared<UvResolver>(*this);
-}
-
-inline xx::Unique<UvAsync> UvLoop::CreateAsync() noexcept {
-	auto async = std::make_shared<UvAsync>();
-	if (async->Init(&uvLoop)) return nullptr;
-	return async;
-}
-
-template<typename TimerType>
-inline xx::Unique<TimerType> UvLoop::CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire) noexcept {
-	auto timer = std::make_shared<TimerType>();
-	if (timer->Init(&uvLoop)) return nullptr;
-	if (onFire) {
-		timer->OnFire = std::move(onFire);
-	}
-	if (timer->Start(timeoutMS, repeatIntervalMS)) return nullptr;
-	return timer;
-}
+#include "xx_uv.hpp"

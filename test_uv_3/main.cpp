@@ -24,7 +24,6 @@ struct MyClient : UvTcpMsgClient {
 	}
 };
 
-
 void RunServer() {
 	UvLoop loop;
 	std::unordered_set<std::shared_ptr<UvTcpMsgPeer>> peers;
@@ -43,7 +42,6 @@ void RunServer() {
 	loop.Run();
 	std::cout << "server end.\n";
 }
-
 
 int main() {
 	std::thread t1([] { RunServer(); });
