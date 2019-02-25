@@ -7,7 +7,7 @@ using System.Security.Cryptography;
 public static class Program
 {
     public const string templatePrefix = "pkggen_template_";
-    public const string outputPath = "../../../../pkg";
+    public const string outputPath = "../../../../output";
 
     public static string GetMD5(this byte[] data)
     {
@@ -45,11 +45,6 @@ public static class Program
                 continue;
             }
             GenCPP_Class.Gen(asm, path, tn, md5);
-            GenCS_Class.Gen(asm, path, tn, md5);
-            GenLUA_Class.Gen(asm, path, tn, md5);
-            //GenCS_MySql.Gen(asm, path, tn);
-            GenCPP_SQLite.Gen(asm, path, tn);
         }
     }
-
 }

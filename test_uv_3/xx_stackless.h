@@ -2,44 +2,48 @@
 #include <functional>
 #include <vector>
 
-struct Stackless {
-	using FuncType = std::function<int(int const& lineNumber)>;
-	std::vector<std::pair<FuncType, int>> funcs;
-	inline void Add(FuncType&& func) {
-		if (!func) return;
-		funcs.emplace_back(std::move(func), 0);
-	}
-	inline void RunAdd(FuncType&& func) {
-		if (!func) return;
-		int n = func(0);
-		if (n == (int)0xFFFFFFFF) return;
-		funcs.emplace_back(std::move(func), n);
-	}
-	size_t RunOnce() {
-		if (funcs.size()) {
-			for (decltype(auto) i = funcs.size() - 1; i != (size_t)-1; --i) {
-				decltype(auto) func = funcs[i];
-				if (func.second < 0) {
-					++func.second;
-				}
-				else {
-					func.second = func.first(func.second);
-				}
-				if (func.second == (int)0xFFFFFFFF) {
-					if (i + 1 < funcs.size()) {
-						funcs[i] = std::move(funcs[funcs.size() - 1]);
+namespace xx {
+
+	struct Stackless {
+		using FuncType = std::function<int(int const& lineNumber)>;
+		std::vector<std::pair<FuncType, int>> funcs;
+		inline void Add(FuncType&& func) {
+			if (!func) return;
+			funcs.emplace_back(std::move(func), 0);
+		}
+		inline void RunAdd(FuncType&& func) {
+			if (!func) return;
+			int n = func(0);
+			if (n == (int)0xFFFFFFFF) return;
+			funcs.emplace_back(std::move(func), n);
+		}
+		size_t RunOnce() {
+			if (funcs.size()) {
+				for (decltype(auto) i = funcs.size() - 1; i != (size_t)-1; --i) {
+					decltype(auto) func = funcs[i];
+					if (func.second < 0) {
+						++func.second;
 					}
-					funcs.pop_back();
+					else {
+						func.second = func.first(func.second);
+					}
+					if (func.second == (int)0xFFFFFFFF) {
+						if (i + 1 < funcs.size()) {
+							funcs[i] = std::move(funcs[funcs.size() - 1]);
+						}
+						funcs.pop_back();
+					}
 				}
 			}
+			return funcs.size();
 		}
-		return funcs.size();
-	}
-};
+	};
 
 #define COR_BEGIN	switch (lineNumber) { case 0:
 #define COR_YIELD	return __LINE__; case __LINE__:;
 #define COR_END		} return (int)0xFFFFFFFF;
+
+}
 
 /*
 UvLoop loop;

@@ -4,11 +4,11 @@
 #include <iostream>
 #include <thread>
 
-struct MyClient : UvTcpMsgClient {
+struct MyClient : xx::UvTcpMsgClient {
 	using UvTcpMsgClient::UvTcpMsgClient;
 	int counter = 0;
 	std::chrono::time_point<std::chrono::system_clock> t = std::chrono::system_clock::now();
-	int HandleMsg(UvTcpMsgPeer::MsgType&& msg) {
+	int HandleMsg(xx::UvTcpMsgPeer::MsgType&& msg) {
 		if (!msg) return -1;
 		//auto bb = std::dynamic_pointer_cast<BBuffer>(msg);
 		//if (!bb) return -1;
@@ -18,23 +18,23 @@ struct MyClient : UvTcpMsgClient {
 			std::cout << double(std::chrono::nanoseconds(std::chrono::system_clock::now() - t).count()) / 1000000000 << std::endl;
 			return -1;
 		}
-		return Peer()->SendRequest(msg, [this](UvTcpMsgPeer::MsgType&&msg) {
+		return Peer()->SendRequest(msg, [this](xx::UvTcpMsgPeer::MsgType&&msg) {
 			return HandleMsg(std::move(msg));
 		}, 1000);
 	}
 };
 
 void RunServer() {
-	UvLoop loop;
-	std::unordered_set<std::shared_ptr<UvTcpMsgPeer>> peers;
-	auto listener = loop.CreateListener<UvTcpMsgListener>("0.0.0.0", 12345);
+	xx::UvLoop loop;
+	std::unordered_set<std::shared_ptr<xx::UvTcpMsgPeer>> peers;
+	auto listener = loop.CreateListener<xx::UvTcpMsgListener>("0.0.0.0", 12345);
 	assert(listener);
-	listener->OnAccept = [&peers](std::shared_ptr<UvTcpBasePeer>&& peer_) {
-		auto peer = std::static_pointer_cast<UvTcpMsgPeer>(peer_);
-		peer->OnReceiveRequest = [peer_w = std::weak_ptr<UvTcpMsgPeer>(peer)](int const& serial, UvTcpMsgPeer::MsgType&& msg)->int {
+	listener->OnAccept = [&peers](std::shared_ptr<xx::UvTcpBasePeer>&& peer_) {
+		auto peer = std::static_pointer_cast<xx::UvTcpMsgPeer>(peer_);
+		peer->OnReceiveRequest = [peer_w = std::weak_ptr<xx::UvTcpMsgPeer>(peer)](int const& serial, xx::UvTcpMsgPeer::MsgType&& msg)->int {
 			return peer_w.lock()->SendResponse(serial, msg);
 		};
-		peer->OnDisconnect = [&peers, peer_w = std::weak_ptr<UvTcpMsgPeer>(peer)]{
+		peer->OnDisconnect = [&peers, peer_w = std::weak_ptr<xx::UvTcpMsgPeer>(peer)]{
 			peers.erase(peer_w.lock());
 		};
 		peers.insert(std::move(peer));
@@ -47,13 +47,13 @@ int main() {
 	std::thread t1([] { RunServer(); });
 	std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-	UvLoop loop;
+	xx::UvLoop loop;
 	auto client = loop.CreateClient<MyClient>();
 	assert(client);
 	client->OnConnect = [client_w = std::weak_ptr<MyClient>(client)]{
-		auto msg = std::make_shared<BBuffer>();
+		auto msg = std::make_shared<xx::BBuffer>();
 		msg->Write(1u, 2u, 3u, 4u, 5u);
-		client_w.lock()->Peer()->SendRequest(msg, [client_w] (UvTcpMsgPeer::MsgType&&msg) {
+		client_w.lock()->Peer()->SendRequest(msg, [client_w] (xx::UvTcpMsgPeer::MsgType&&msg) {
 			return client_w.lock()->HandleMsg(std::move(msg));
 		}, 0);
 	};

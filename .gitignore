@@ -1,4 +1,6 @@
-/src/.idea
-/.vs
+.idea
+.vs
 /packages
 x64
+obj
+bin
