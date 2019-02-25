@@ -1,4 +1,5 @@
 #pragma once
+#include "xx_object.h"
 #include "xx_buffer.h"
 #include <string>
 #include <initializer_list>
@@ -7,36 +8,14 @@
 #include <cmath>
 
 namespace xx {
-	struct BBuffer;
 
-	// 基础适配模板
-	template<typename T, typename ENABLED = void>
-	struct BFuncs {
-		static inline void WriteTo(BBuffer& bb, T const& in) noexcept {
-			assert(false);
-		}
-		static inline int ReadFrom(BBuffer& bb, T& out) noexcept {
-			assert(false);
-			return 0;
-		}
-	};
-
-	// 所有可序列化类的基类
-	struct BObject {
-		inline virtual uint16_t GetTypeId() const noexcept { return 0; }
-		inline virtual void ToBBuffer(BBuffer& bb) const noexcept {}
-		inline virtual int FromBBuffer(BBuffer& bb) noexcept { return 0; }
-		inline virtual void ToString(std::string& s) const noexcept {};
-		inline virtual void ToStringCore(std::string& s) const noexcept {};
-	};
-
-	struct BBuffer : Buffer, BObject {
+	struct BBuffer : Buffer {
 		uint32_t offset = 0;													// 读指针偏移量
 		uint32_t offsetRoot = 0;												// offset值写入修正
 		uint32_t readLengthLimit = 0;											// 主用于传递给容器类进行长度合法校验
 
 		std::unordered_map<void*, uint32_t> ptrs;
-		std::unordered_map<uint32_t, std::shared_ptr<BObject>> idxs;
+		std::unordered_map<uint32_t, std::shared_ptr<Object>> idxs;
 		std::unordered_map<uint32_t, std::shared_ptr<std::string>> idxs1;
 
 
@@ -53,16 +32,16 @@ namespace xx {
 		BBuffer& operator=(BBuffer const&) = delete;
 
 
-		typedef std::shared_ptr<BObject>(*Creator)();
+		typedef std::shared_ptr<Object>(*Creator)();
 		inline static std::array<Creator, 1 << (sizeof(uint16_t) * 8)> creators;
 
-		template<typename T, typename ENABLED = std::enable_if_t<std::is_base_of_v<BObject, T>>>
+		template<typename T, typename ENABLED = std::enable_if_t<std::is_base_of_v<Object, T>>>
 		inline static void Register(uint16_t const& typeId) noexcept {
-			creators[typeId] = []()->std::shared_ptr<BObject> { return std::make_shared<T>(); };
+			creators[typeId] = []()->std::shared_ptr<Object> { return std::make_shared<T>(); };
 		}
 
-		inline static std::shared_ptr<BObject> CreateByTypeId(uint16_t typeId) {
-			return creators[typeId] ? creators[typeId]() : std::shared_ptr<BObject>();
+		inline static std::shared_ptr<Object> CreateByTypeId(uint16_t typeId) {
+			return creators[typeId] ? creators[typeId]() : std::shared_ptr<Object>();
 		}
 
 		template<typename ...TS>
@@ -95,13 +74,13 @@ namespace xx {
 
 		template<typename T>
 		void WritePtr(std::shared_ptr<T> const& v) noexcept {
-			static_assert(std::is_base_of_v<BObject, T> || std::is_same_v<std::string, T>, "not support type??");
+			static_assert(std::is_base_of_v<Object, T> || std::is_same_v<std::string, T>, "not support type??");
 			uint16_t typeId = 0;
 			if (!v) {
 				Write(typeId);
 				return;
 			}
-			if constexpr (std::is_base_of_v<BObject, T>) {
+			if constexpr (std::is_base_of_v<Object, T>) {
 				typeId = v->GetTypeId();
 				assert(typeId);					// forget Register TypeId ? 
 			}
@@ -131,7 +110,7 @@ namespace xx {
 
 		template<typename T>
 		int ReadPtr(std::shared_ptr<T>& v) noexcept {
-			static_assert(std::is_base_of_v<BObject, T> || std::is_same_v<std::string, T>, "not support type??");
+			static_assert(std::is_base_of_v<Object, T> || std::is_same_v<std::string, T>, "not support type??");
 			v.reset();
 			uint16_t typeId;
 			if (auto r = Read(typeId)) return r;
@@ -139,7 +118,7 @@ namespace xx {
 			if constexpr (std::is_same_v<std::string, T>) {
 				if (typeId != 1) return -1;
 			}
-			else if constexpr (std::is_base_of_v<BObject, T>) {
+			else if constexpr (std::is_base_of_v<Object, T>) {
 				if (typeId < 2) return -2;
 			}
 			if (typeId > 2 && !creators[typeId]) return -3;		// forget Register?
@@ -154,7 +133,7 @@ namespace xx {
 					if (auto r = Read(*v)) return r;
 				}
 				else {
-					std::shared_ptr<BObject> o;
+					std::shared_ptr<Object> o;
 					if (typeId == 2) {
 						o = std::make_shared<BBuffer>();
 					}
@@ -251,13 +230,13 @@ namespace xx {
 			return 0;
 		}
 
-
-		inline std::string ToString() {
-			std::string s;
+		inline virtual void ToString(std::string& s) const noexcept override {
+			s += "{ \"len\":" + std::to_string(len) + ", \"offset\":" + std::to_string(offset) + ", \"data\":[ ";
 			for (uint32_t i = 0; i < len; i++) {
-				s += std::to_string((int)buf[i]) + " ";
+				s += std::to_string((int)buf[i]) + ", ";
 			}
-			return s;
+			if (len) s.resize(s.size() - 2);
+			s += " ] }";
 		}
 	};
 
@@ -387,7 +366,7 @@ namespace xx {
 
 	// 适配 std::shared_ptr<T>
 	template<typename T>
-	struct BFuncs<std::shared_ptr<T>, std::enable_if_t<std::is_base_of_v<BObject, T> || std::is_same_v<std::string, T>>> {
+	struct BFuncs<std::shared_ptr<T>, std::enable_if_t<std::is_base_of_v<Object, T> || std::is_same_v<std::string, T>>> {
 		static inline void WriteTo(BBuffer& bb, std::shared_ptr<T> const& in) noexcept {
 			bb.WritePtr(in);
 		}
@@ -398,7 +377,7 @@ namespace xx {
 
 	// 适配 std::weak_ptr<T>
 	template<typename T>
-	struct BFuncs<std::weak_ptr<T>, std::enable_if_t<std::is_base_of_v<BObject, T> || std::is_same_v<std::string, T>>> {
+	struct BFuncs<std::weak_ptr<T>, std::enable_if_t<std::is_base_of_v<Object, T> || std::is_same_v<std::string, T>>> {
 		static inline void WriteTo(BBuffer& bb, std::weak_ptr<T> const& in) noexcept {
 			if (auto ptr = in.lock()) {
 				bb.WritePtr(ptr);

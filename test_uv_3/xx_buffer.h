@@ -1,10 +1,10 @@
 ﻿#pragma once
+#include "xx_object.h"
 #include <memory>
 #include <cassert>
-#include <cstdint>
 namespace xx {
 
-	struct Buffer {
+	struct Buffer : Object {
 		uint8_t* buf;
 		uint32_t len;
 		uint32_t cap;

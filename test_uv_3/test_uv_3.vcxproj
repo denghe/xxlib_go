@@ -98,6 +98,7 @@
     <ClInclude Include="xx_bbuffer.h" />
     <ClInclude Include="xx_buffer.h" />
     <ClInclude Include="xx_coroutine.h" />
+    <ClInclude Include="xx_object.h" />
     <ClInclude Include="xx_stackless.h" />
     <ClInclude Include="xx_uv_base.h" />
     <ClInclude Include="test_xx_uv_echo.h" />

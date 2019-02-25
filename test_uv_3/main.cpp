@@ -113,7 +113,7 @@ int main() {
 //#include "xx_bbuffer.h"
 //#include <iostream>
 //
-//struct Node : BObject {
+//struct Node : Object {
 //	int indexAtContainer;
 //	std::weak_ptr<Node> parent;
 //	std::vector<std::weak_ptr<Node>> childs;
@@ -130,7 +130,7 @@ int main() {
 //#pragma endregion
 //};
 //
-//struct Container : BObject {
+//struct Container : Object {
 //	std::vector<std::shared_ptr<Node>> nodes;
 //	std::weak_ptr<Node> node;
 //#pragma region

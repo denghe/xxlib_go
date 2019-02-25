@@ -14,7 +14,7 @@ namespace xx {
 		BBuffer recvBB;			// for replace buf memory decode message
 		BBuffer sendBB;
 		int serial = 0;
-		using MsgType = std::shared_ptr<BObject>;
+		using MsgType = std::shared_ptr<Object>;
 		std::unordered_map<int, std::pair<std::function<int(MsgType&& msg)>, std::shared_ptr<UvTimer>>> callbacks;
 		std::function<int(MsgType&& msg)> OnReceivePush;
 		std::function<int(int const& serial, MsgType&& msg)> OnReceiveRequest;
