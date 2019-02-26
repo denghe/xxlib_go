@@ -20,6 +20,8 @@
 #include <chrono>
 #include <iostream>
 
+#include "fixed_function.hpp"
+
 // 当 IOS 最低版本兼容参数低于 11 时无法启用 C++17, 故启用 C++14 结合下面的各种造假来解决
 #ifdef __IPHONE_OS_VERSION_MIN_REQUIRED
 #include <experimental/optional>
@@ -108,10 +110,6 @@ size_t _countof_helper(T const (&arr)[N])
 namespace std {
 	using string_s = shared_ptr<string>;
 	using string_w = weak_ptr<string>;
-	template<typename T>
-	using vector_s = shared_ptr<vector<T>>;
-	template<typename T>
-	using vector_w = weak_ptr<vector<T>>;
 }
 
 namespace xx {
@@ -271,29 +269,6 @@ namespace xx {
 		}
 	};
 
-	// 适配 std::vector<T>
-	template<typename T>
-	struct SFuncs<std::vector<T>, void> {
-		static inline void WriteTo(std::string& s, std::vector<T> const& in) noexcept {
-			s.append("[ ");
-			for (size_t i = 0; i < in.size(); i++)
-			{
-				Append(s, in[i], ", ");
-			}
-			if (in.size())
-			{
-				s.resize(s.size() - 2);
-				s.append(" ]");
-			}
-			else
-			{
-				s[s.size() - 1] = ']';
-			}
-		}
-	};
-
-
-
 	// utils
 
 	inline size_t Calc2n(size_t const& n) noexcept {
@@ -355,4 +330,22 @@ namespace xx {
 		return v;
 	}
 
+
+
+	// helpers
+
+	struct ScopeGuard {
+		template<typename T>
+		ScopeGuard(T&& f) : func(std::forward<T>(f)) {}
+		~ScopeGuard() { Run(); }
+		inline void RunAndCancel() noexcept { Run(); Cancel(); }
+		inline void Run() noexcept { if (func) func(); }
+		inline void Cancel() noexcept { func = nullptr; }
+		template<typename T>
+		inline void Set(T&& f) noexcept { func = std::forward<T>(f); }
+	private:
+		kapala::fixed_function<void()> func;
+		ScopeGuard(ScopeGuard const&) = delete;
+		ScopeGuard &operator=(ScopeGuard const&) = delete;
+	};
 }

@@ -56,7 +56,7 @@ namespace xx {
 		}
 
 		using Buffer::Buffer;
-		BBuffer(BBuffer&& o) 
+		BBuffer(BBuffer&& o)
 			: Buffer(std::move(o))
 			, offset(o.offset) {
 			o.offset = 0;
@@ -81,6 +81,21 @@ namespace xx {
 
 		inline static std::shared_ptr<Object> CreateByTypeId(uint16_t typeId) {
 			return creators[typeId] ? creators[typeId]() : std::shared_ptr<Object>();
+		}
+
+		template<typename T, typename ENABLED = std::enable_if_t<std::is_pod_v<T>>>
+		void WriteFixed(T const& v) {
+			Reserve(len + sizeof(T));
+			memcpy(buf + len, &v, sizeof(T));
+			len += sizeof(T);
+		}
+
+		template<typename T, typename ENABLED = std::enable_if_t<std::is_pod_v<T>>>
+		int ReadFixed(T& v) {
+			if (offset + sizeof(T) > len) return -1;
+			memcpy(&v, buf + offset, sizeof(T));
+			offset += sizeof(T);
+			return 0;
 		}
 
 		template<typename ...TS>
@@ -219,7 +234,7 @@ namespace xx {
 			if constexpr (std::is_signed_v<T>) {
 				u = ZigZagEncode(v);
 			}
-			Reserve(sizeof(T) + 1);
+			Reserve(len + sizeof(T) + 1);
 			while (u >= 1 << 7) {
 				buf[len++] = uint8_t(u & 0x7fu | 0x80u);
 				u >>= 7;
@@ -462,29 +477,6 @@ namespace xx {
 			std::shared_ptr<T> ptr;
 			if (int r = bb.ReadPtr(ptr)) return r;
 			out = ptr;
-			return 0;
-		}
-	};
-
-	//   ≈‰ std::vector<T>
-	template<typename T>
-	struct BFuncs<std::vector<T>, void> {
-		static inline void WriteTo(BBuffer& bb, std::vector<T> const& in) noexcept {
-			bb.Write(in.size());
-			for (decltype(auto) item : in) {
-				bb.Write(item);
-			}
-		}
-		static inline int ReadFrom(BBuffer& bb, std::vector<T>& out) noexcept {
-			size_t len = 0;
-			if (auto r = bb.Read(len)) return r;
-			if (bb.readLengthLimit && bb.readLengthLimit < len) return -18;
-			out.clear();
-			for (size_t i = 0; i < len; i++) {
-				T tmp;
-				if (auto r = bb.Read(tmp)) return r;
-				out.push_back(std::move(tmp));
-			}
 			return 0;
 		}
 	};
