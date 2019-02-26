@@ -719,7 +719,7 @@ public static class GenExtensions
             {
                 if (t.Name == "Ref`1")
                 {
-                    return "std::shared_ptr<" + _GetTypeDecl_Cpp(t.GenericTypeArguments[0], templateName) + ">";
+                    return "std::weak_ptr<" + _GetTypeDecl_Cpp(t.GenericTypeArguments[0], templateName) + ">";
                 }
                 else if (t.Name == "List`1")
                 {

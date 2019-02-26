@@ -42,8 +42,7 @@ public static class Program
 
             if (!GenTypeId.Gen(asm, path, tn))
             {
-                System.Console.WriteLine(tn + "_TypeIdMappings.cs 已生成. 请将其放入模板项目并再次生成. 按`回车`继续.");
-                System.Console.ReadLine();
+                System.Console.WriteLine(tn + "_TypeIdMappings.cs 已生成. 请将其放入模板项目并再次生成. ");
                 continue;
             }
             GenCPP_Class.Gen(asm, path, tn, md5);

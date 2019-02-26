@@ -217,7 +217,7 @@ namespace " + c.Namespace.Replace(".", "::") + @" {");
         int FromBBuffer(xx::BBuffer& bb) noexcept override;
         int FromBBufferCore(xx::BBuffer& bb) noexcept;
 
-        static std::shared_ptr<" + c.Name + @"> Create() noexcept;
+        static std::shared_ptr<" + c.Name + @"> MakeShared() noexcept;
         inline static std::shared_ptr<ThisType> defaultInstance;
     };");   // class }
 
@@ -411,7 +411,7 @@ namespace " + c.Namespace.Replace(".", "::") + @" {");
             }
             sb.Append(@"
     }
-    inline std::shared_ptr<" + c.Name + @"> " + c.Name + @"::Create() noexcept {
+    inline std::shared_ptr<" + c.Name + @"> " + c.Name + @"::MakeShared() noexcept {
         return std::make_shared<" + c.Name + @">();
     }");
 
@@ -447,6 +447,8 @@ namespace " + templateName + @" {
 }
 ");
 
-        sb._WriteToFile(Path.Combine(outDir, templateName + "_class.h"));
+        var outFN = Path.Combine(outDir, templateName + "_class.h");
+        sb._WriteToFile(outFN);
+        System.Console.WriteLine("已生成 " + outFN);
     }
 }

@@ -345,4 +345,14 @@ namespace xx {
 		return os << *o;
 	}
 
+
+
+	// make_shared helper
+
+	template<typename T, typename ...Args>
+	std::shared_ptr<T>& MakeShared(std::shared_ptr<T>& v, Args&&...args) {
+		v = std::make_shared<T>(std::forward<Args>(args)...);
+		return v;
+	}
+
 }
