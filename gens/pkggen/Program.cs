@@ -28,6 +28,8 @@ public static class Program
         global::System.Console.ReadKey();
         return;
 #endif
+        var outPath = args.Length > 0 ? args[0] : outputPath;
+
         // 扫所有添加过引用的, 名字前缀为 templatePrefix 的 dll, 执行相应的生成
         foreach (var fn in Directory.GetFiles(Application.StartupPath, templatePrefix + "*.dll"))
         {
@@ -35,7 +37,7 @@ public static class Program
             var asm = Assembly.LoadFile(fn);
             var shortfn = new FileInfo(fn).Name;
             shortfn = shortfn.Substring(0, shortfn.LastIndexOf('.'));
-            var path = Path.Combine(Application.StartupPath, outputPath);
+            var path = Path.Combine(Application.StartupPath, outPath);
             var tn = shortfn.Substring(templatePrefix.Length);
 
             if (!GenTypeId.Gen(asm, path, tn))
