@@ -74,7 +74,7 @@ void RunRouter() {
 		auto peer = std::static_pointer_cast<RouterPeer>(peer_);
 		peer->OnReceiveRoute = [&, peer_w = RouterPeer_w(peer)](int const& addr, uint8_t* const& recvBuf, uint32_t const& recvLen)->int {
 			auto iter = serverPeers.find(addr);
-			if (iter == serverPeers.end()) return -1;
+			if (iter == serverPeers.end()) return -1;		// todo: 返回已断开的控制指令回应
 			memcpy(recvBuf, &peer_w.lock()->peerId, sizeof(peer_w.lock()->peerId));		// 将地址替换为 client peerId 以方便 server 回复时携带以定位到 client peer
 			return iter->second->Send(recvBuf, recvLen);
 		};
@@ -93,7 +93,7 @@ void RunRouter() {
 		assert(!serverPeers[1]);
 		dialer1->peer->OnReceiveRoute = [&](int const& addr, uint8_t* const& recvBuf, uint32_t const& recvLen)->int {
 			auto iter = clientPeers.find(addr);
-			if (iter == clientPeers.end()) return -1;
+			if (iter == clientPeers.end()) return -1;		// todo: 返回已断开的控制指令回应
 			int serverId = 1;
 			memcpy(recvBuf, &serverId, sizeof(serverId));		// 将地址替换为 server peerId 以方便 client 收到时知道是哪个 server 发出的
 			return iter->second->Send(recvBuf, recvLen);
@@ -107,7 +107,7 @@ void RunRouter() {
 		assert(!serverPeers[2]);
 		dialer2->peer->OnReceiveRoute = [&](int const& addr, uint8_t* const& recvBuf, uint32_t const& recvLen)->int {
 			auto iter = clientPeers.find(addr);
-			if (iter == clientPeers.end()) return -1;
+			if (iter == clientPeers.end()) return -1;		// todo: 返回已断开的控制指令回应
 			int serverId = 1;
 			memcpy(recvBuf, &serverId, sizeof(serverId));		// 将地址替换为 server peerId 以方便 client 收到时知道是哪个 server 发出的
 			return iter->second->Send(recvBuf, recvLen);
