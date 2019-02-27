@@ -47,6 +47,7 @@ namespace xx {
 		size_t offsetRoot = 0;												// offset值写入修正
 		size_t readLengthLimit = 0;											// 主用于传递给容器类进行长度合法校验
 
+		// todo: 这些容器改为指针, XxxxxRoot 函数中检测并创建
 		std::unordered_map<void*, size_t> ptrs;
 		std::unordered_map<size_t, std::shared_ptr<Object>> objIdxs;
 		std::unordered_map<size_t, std::shared_ptr<std::string>> strIdxs;
@@ -70,6 +71,12 @@ namespace xx {
 		BBuffer(BBuffer const&) = delete;
 		BBuffer& operator=(BBuffer const&) = delete;
 
+		// unsafe: direct change field value( for Read )
+		inline void Reset(uint8_t* const& buf = nullptr, size_t const& len = 0, size_t const& offset = 0) {
+			this->buf = buf;
+			this->len = len;
+			this->offset = offset;
+		}
 
 		typedef std::shared_ptr<Object>(*Creator)();
 		inline static std::array<Creator, 1 << (sizeof(uint16_t) * 8)> creators;

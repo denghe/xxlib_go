@@ -3,7 +3,135 @@
 #include <iostream>
 #include <unordered_set>
 
-#define var decltype(auto)
+namespace xx {
+	struct RouterListener;
+	using RouterListener_s = std::shared_ptr<RouterListener>;
+	struct RouterPeer;
+	using RouterPeer_s = std::shared_ptr<RouterPeer>;
+	struct RouterDialer;
+	using RouterDialer_s = std::shared_ptr<RouterDialer>;
+
+	struct Router : UvLoop {
+		BBuffer readBB;			// for replace buf memory decode package
+		int addr = 0;			// for gen client peer addr
+		std::unordered_map<int, RouterPeer_s> clientPeers;
+		std::unordered_map<int, RouterPeer_s> serverPeers;
+		std::shared_ptr<RouterListener> listener;
+		UvTimer_s timer;	// for auto dial
+		std::unordered_map<int, RouterDialer_s> dialers;
+		int RegisterDialer(int const& addr, std::string&& ip, int const& port) noexcept;
+
+		Router();
+		~Router() {
+			readBB.Reset();
+		}
+	};
+
+	// 包结构: addr(4), data( serial + pkg )
+	struct RouterPeer : UvTcpBasePeer {
+		BBuffer* bb = nullptr;										// for replace buf memory decode package
+		std::unordered_map<int, RouterPeer_s>* peers = nullptr;	// for find target peer
+		int addr = 0;
+
+		RouterPeer() = default;
+		RouterPeer(RouterPeer const&) = delete;
+		RouterPeer& operator=(RouterPeer const&) = delete;
+
+		virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen) noexcept {
+			bb->Reset(recvBuf, recvLen, 0);
+
+			decltype(this->addr) addr = 0;
+			if (int r = bb->ReadFixed(addr)) return r;
+
+			auto iter = peers->find(addr);
+			if (iter != peers->end()) {
+				memcpy(recvBuf, &this->addr, sizeof(this->addr));	// replace addr
+				return iter->second->Send(recvBuf, recvLen);
+			}
+			// todo: else 地址不存在的回执通知?
+			return 0;
+		}
+	};
+
+	struct RouterDialer : UvTcpDialer {
+		using UvTcpDialer::UvTcpDialer;
+		Router* router = nullptr;
+		int addr = 0;
+		std::string ip;
+		int port = 0;
+		inline int Dial() {
+			return this->UvTcpDialer::Dial(ip, port, 2000);
+		}
+
+		inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept {
+			return std::make_shared<RouterPeer>();
+		}
+		inline virtual void Connect() noexcept {
+			auto peer = std::move(Peer<RouterPeer>());
+			peer->addr = addr;
+			peer->peers = &router->serverPeers;
+			peer->bb = &router->readBB;
+			router->serverPeers[peer->addr] = std::move(peer);
+		}
+	};
+
+	struct RouterListener : UvTcpBaseListener {
+		Router* router = nullptr;
+
+		RouterListener() = default;
+		RouterListener(RouterListener const&) = delete;
+		RouterListener& operator=(RouterListener const&) = delete;
+
+		inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
+			return std::make_shared<RouterPeer>();
+		}
+		inline virtual void Accept(std::shared_ptr<UvTcpBasePeer>&& peer_) noexcept override {
+			auto peer = std::move(xx::Cast<RouterPeer>(peer_));
+			peer->addr = ++router->addr;
+			peer->peers = &router->clientPeers;
+			peer->bb = &router->readBB;
+			router->clientPeers[peer->addr] = std::move(peer);
+		};
+	};
+
+	inline Router::Router()
+		: UvLoop() {
+		listener = CreateTcpListener<RouterListener>("0.0.0.0", 10000);
+		if (listener) {
+			listener->router = this;
+			std::cout << "router started...";
+		}
+
+		timer = CreateTimer<>(100, 500, [this] {
+			for (decltype(auto) kv : dialers) {
+				if (!serverPeers[kv.first] && !kv.second->State()) {
+					kv.second->Dial();
+				}
+			}
+		});
+	}
+
+	inline int Router::RegisterDialer(int const& addr, std::string&& ip, int const& port) noexcept {
+		if (dialers.find(addr) == dialers.end()) return -1;
+		auto dialer = CreateTcpDialer<RouterDialer>();
+		if (!dialer) return -2;
+		dialer->addr = addr;
+		dialer->ip = std::move(ip);
+		dialer->port = port;
+		dialers[addr] = dialer;
+		return 0;
+	}
+}
+
+// todo: UvTcpRouterListener UvTcpRouterListenerPeer UvTcpRouterListenerPeerPeer  UvTcpRouterDialer UvTcpRouterDialerPeer UvTcpRouterDialerPeerDialer UvTcpRouterDialerPeerDialerPeer
+// UvTcpRouterListener: 本身自己管理 Accept 后的 UvTcpRouterListenerPeer, 然后提供在收到握手协议之后的相关事件 UvTcpRouterListenerPeerPeer
+// UvTcpRouterDialer: 本身自己管理 Connect 后的 UvTcpRouterDialerPeer, 用户与拨号成功后继续访问 UvTcpRouterDialerPeer 创建虚拟拨号器
+// UvTcpRouterDialerPeerDialer: 与 UvTcpDialer 用法差不多, 虚拟拨号, Connect 后得到 UvTcpRouterListenerPeerPeer
+
+// todo: 将当前 UvTcpPeer 里面路由相关移除
+namespace xx {
+
+}
 
 void RunServer1() {
 	xx::UvLoop loop;
@@ -23,110 +151,8 @@ void RunServer1() {
 	std::cout << "server end.\n";
 }
 
-void RunServer2() {
-	xx::UvLoop loop;
-	std::unordered_set<xx::UvTcpPeer_s> peers;
-	auto listener = loop.CreateTcpListener<xx::UvTcpListener>("0.0.0.0", 10002);
-	assert(listener);
-	listener->OnAccept = [&peers](xx::UvTcpPeer_s&& peer) {
-		peer->OnReceiveRouteRequest = [peer_w = xx::UvTcpPeer_w(peer)](int const& addr, int const& serial, xx::Object_s&& msg)->int {
-			return peer_w.lock()->SendResponse(serial, msg, addr);
-		};
-		peer->OnDisconnect = [&peers, peer_w = xx::UvTcpPeer_w(peer)]{
-			peers.erase(peer_w.lock());
-		};
-		peers.insert(std::move(peer));
-	};
-	loop.Run();
-	std::cout << "server end.\n";
-}
-
-
-
-struct RouterPeer : xx::UvTcpPeer {
-	using BaseType = xx::UvTcpPeer;
-	using BaseType::BaseType;
-	int peerId = 0;
-};
-using RouterPeer_s = std::shared_ptr<RouterPeer>;
-using RouterPeer_w = std::weak_ptr<RouterPeer>;
-
-struct RouterListener : xx::UvTcpListener {
-	using BaseType = xx::UvTcpListener;
-	using BaseType::BaseType;
-	inline virtual std::shared_ptr<xx::UvTcpPeer> CreatePeer() noexcept override {
-		return std::make_shared<RouterPeer>();
-	}
-};
-using RouterListener_s = std::shared_ptr<RouterListener>;
-using RouterListener_w = std::weak_ptr<RouterListener>;
-
 void RunRouter() {
-	xx::UvLoop loop;
 
-	int peerId = 0;	// for gen connect id
-	std::unordered_map<int, RouterPeer_s> clientPeers;
-	std::unordered_map<int, xx::UvTcpPeer_s> serverPeers;
-
-	auto listener = loop.CreateTcpListener<RouterListener>("0.0.0.0", 10000);
-	assert(listener);
-	listener->OnAccept = [&](xx::UvTcpPeer_s&& peer_) {
-		auto peer = std::static_pointer_cast<RouterPeer>(peer_);
-		peer->OnReceiveRoute = [&, peer_w = RouterPeer_w(peer)](int const& addr, uint8_t* const& recvBuf, uint32_t const& recvLen)->int {
-			auto iter = serverPeers.find(addr);
-			if (iter == serverPeers.end()) return -1;		// todo: 返回已断开的控制指令回应
-			memcpy(recvBuf, &peer_w.lock()->peerId, sizeof(peer_w.lock()->peerId));		// 将地址替换为 client peerId 以方便 server 回复时携带以定位到 client peer
-			return iter->second->Send(recvBuf, recvLen);
-		};
-		peer->OnDisconnect = [&, peer_w = RouterPeer_w(peer)]{
-			auto peer = peer_w.lock();
-			assert(peer);
-			clientPeers.erase(peer->peerId);
-		};
-		peer->peerId = ++peerId;
-		clientPeers[peerId] = std::move(peer);
-	};
-
-	auto dialer1 = loop.CreateTcpDialer<>();
-	assert(dialer1);
-	dialer1->OnConnect = [&] {
-		assert(!serverPeers[1]);
-		dialer1->peer->OnReceiveRoute = [&](int const& addr, uint8_t* const& recvBuf, uint32_t const& recvLen)->int {
-			auto iter = clientPeers.find(addr);
-			if (iter == clientPeers.end()) return -1;		// todo: 返回已断开的控制指令回应
-			int serverId = 1;
-			memcpy(recvBuf, &serverId, sizeof(serverId));		// 将地址替换为 server peerId 以方便 client 收到时知道是哪个 server 发出的
-			return iter->second->Send(recvBuf, recvLen);
-		};
-		serverPeers[1] = std::move(dialer1->peer);
-	};
-
-	auto dialer2 = loop.CreateTcpDialer<>();
-	assert(dialer2);
-	dialer2->OnConnect = [&] {
-		assert(!serverPeers[2]);
-		dialer2->peer->OnReceiveRoute = [&](int const& addr, uint8_t* const& recvBuf, uint32_t const& recvLen)->int {
-			auto iter = clientPeers.find(addr);
-			if (iter == clientPeers.end()) return -1;		// todo: 返回已断开的控制指令回应
-			int serverId = 1;
-			memcpy(recvBuf, &serverId, sizeof(serverId));		// 将地址替换为 server peerId 以方便 client 收到时知道是哪个 server 发出的
-			return iter->second->Send(recvBuf, recvLen);
-		};
-		serverPeers[2] = std::move(dialer2->peer);
-	};
-
-	auto timer = loop.CreateTimer(100, 100, [&] {
-		if (!serverPeers[1] && !dialer1->State()) {
-			dialer1->Dial("127.0.0.1", 10001);
-		}
-		if (!serverPeers[2] && !dialer2->State()) {
-			dialer2->Dial("127.0.0.1", 10002);
-		}
-	});
-	assert(timer);
-
-	loop.Run();
-	std::cout << "server end.\n";
 }
 
 int main() {
@@ -163,7 +189,7 @@ int main() {
 
 
 
-
+//#define var decltype(auto)
 
 //struct GameEnv {
 //	std::unordered_map<int, PKG::Player_s> players;

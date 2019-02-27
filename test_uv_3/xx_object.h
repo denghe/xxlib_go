@@ -330,6 +330,11 @@ namespace xx {
 		return v;
 	}
 
+	// unsafe. need more test
+	template<typename T, typename U>
+	std::shared_ptr<T>& Cast(std::shared_ptr<U>& v) {
+		return *(std::shared_ptr<T>*)&v;
+	}
 
 
 	// helpers

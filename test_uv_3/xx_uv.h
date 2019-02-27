@@ -54,7 +54,7 @@ namespace xx {
 		std::shared_ptr<UvResolver> CreateResolver() noexcept;
 		std::shared_ptr<UvAsync> CreateAsync() noexcept;
 
-		template<typename ListenerType = UvTcpListener, typename ENABLED = std::enable_if_t<std::is_base_of_v<UvTcpListener, ListenerType>>>
+		template<typename ListenerType = UvTcpListener, typename ENABLED = std::enable_if_t<std::is_base_of_v<UvTcpBaseListener, ListenerType>>>
 		std::shared_ptr<ListenerType> CreateTcpListener(std::string const& ip, int const& port, int const& backlog = 128) noexcept;
 
 		template<typename DialerType = UvTcpDialer, typename ENABLED = std::enable_if_t<std::is_base_of_v<UvTcpDialer, DialerType>>>
@@ -366,7 +366,7 @@ namespace xx {
 		}
 	};
 
-	// pack struct: addr(2 bytes), serial, data
+	// pack struct: addr, serial, data
 	struct UvTcpPeer : UvTcpBasePeer {
 		BBuffer recvBB;			// for replace buf memory decode package
 		BBuffer sendBB;
@@ -491,7 +491,16 @@ namespace xx {
 		}
 	};
 
-	struct UvTcpListener : UvTcp {
+	struct UvTcpBaseListener : UvTcp {
+		UvTcpBaseListener() = default;
+		UvTcpBaseListener(UvTcpBaseListener const&) = delete;
+		UvTcpBaseListener& operator=(UvTcpBaseListener const&) = delete;
+
+		inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept = 0;
+		inline virtual void Accept(std::shared_ptr<UvTcpBasePeer>&& peer) noexcept = 0;
+	};
+
+	struct UvTcpListener : UvTcpBaseListener {
 		std::function<std::shared_ptr<UvTcpPeer>()> OnCreatePeer;
 		std::function<void(std::shared_ptr<UvTcpPeer>&& peer)> OnAccept;
 
@@ -499,12 +508,12 @@ namespace xx {
 		UvTcpListener(UvTcpListener const&) = delete;
 		UvTcpListener& operator=(UvTcpListener const&) = delete;
 
-		inline virtual std::shared_ptr<UvTcpPeer> CreatePeer() noexcept {
+		inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
 			return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpPeer>();
 		}
-		inline virtual void Accept(std::shared_ptr<UvTcpPeer>&& peer) noexcept {
+		inline virtual void Accept(std::shared_ptr<UvTcpBasePeer>&& peer) noexcept override {
 			if (OnAccept) {
-				OnAccept(std::move(peer));
+				OnAccept(std::move(xx::Cast<UvTcpPeer>(peer)));
 			}
 		};
 	};
@@ -539,7 +548,7 @@ namespace xx {
 	struct UvTcpDialer;
 	struct uv_connect_t_ex {
 		uv_connect_t req;
-		std::shared_ptr<UvTcpPeer> peer;		// temp holder
+		std::shared_ptr<UvTcpBasePeer> peer;	// temp holder
 		std::weak_ptr<UvTcpDialer> client_w;	// weak ref
 		int serial;
 		int batchNumber;
@@ -552,9 +561,9 @@ namespace xx {
 		std::unordered_map<int, uv_connect_t_ex*> reqs;
 		int batchNumber = 0;
 		std::shared_ptr<UvTimer> timeouter;		// singleton holder
-		std::shared_ptr<UvTcpPeer> peer;		// singleton holder
+		std::shared_ptr<UvTcpBasePeer> peer;	// singleton holder
 
-		std::function<std::shared_ptr<UvTcpPeer>()> OnCreatePeer;
+		std::function<std::shared_ptr<UvTcpBasePeer>()> OnCreatePeer;
 		std::function<void()> OnConnect;
 		std::function<void()> OnTimeout;
 
@@ -564,6 +573,11 @@ namespace xx {
 
 		virtual ~UvTcpDialer() {
 			Cleanup();
+		}
+
+		template<typename PeerType = UvTcpPeer, typename ENABLED = std::enable_if_t<std::is_base_of_v<UvTcpBasePeer, PeerType>>>
+		std::shared_ptr<PeerType>& Peer() const {
+			return *(std::shared_ptr<PeerType>*)&peer;
 		}
 
 		// 0: free    1: dialing    2: connected
@@ -654,7 +668,7 @@ namespace xx {
 			}
 		}
 
-		inline virtual std::shared_ptr<UvTcpPeer> CreatePeer() noexcept {
+		inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept {
 			return std::make_shared<UvTcpPeer>();
 		}
 		inline virtual void Connect() noexcept {

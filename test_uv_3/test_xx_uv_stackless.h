@@ -28,7 +28,7 @@ void TestUvStackless() {
 				}
 		}
 		std::cout << "connected.\n";
-		zs->peer = std::move(std::static_pointer_cast<UvTcpPackPeer>(zs->client->peer));
+		zs->peer = std::move(zs->client->Peer<UvTcpPackPeer>());
 		zs->peer->OnReceivePack = [wzs = std::weak_ptr<Ctx1>(zs)](uint8_t const* const& buf, uint32_t const& len) {
 			if (auto zs = wzs.lock()) {
 				Buffer b(len);

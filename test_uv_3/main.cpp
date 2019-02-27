@@ -19,7 +19,7 @@ struct MyDialer : xx::UvTcpDialer {
 			std::cout << double(std::chrono::nanoseconds(std::chrono::system_clock::now() - t).count()) / 1000000000 << std::endl;
 			return -1;
 		}
-		return peer->SendRequest(msg, [this](xx::Object_s&&msg) {
+		return Peer<>()->SendRequest(msg, [this](xx::Object_s&&msg) {
 			return HandleMsg(std::move(msg));
 		}, 1000);
 	}
@@ -55,7 +55,7 @@ int main() {
 	client->OnConnect = [client_w = MyDialer_w(client)]{
 		auto msg = xx::BBuffer::Create();
 		msg->Write(1u, 2u, 3u, 4u, 5u);
-		client_w.lock()->peer->SendRequest(msg, [client_w] (xx::Object_s&&msg) {
+		client_w.lock()->Peer<>()->SendRequest(msg, [client_w] (xx::Object_s&&msg) {
 			return client_w.lock()->HandleMsg(std::move(msg));
 		}, 0);
 	};
