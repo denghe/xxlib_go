@@ -86,7 +86,7 @@ namespace xx {
 			return std::make_shared<RouterPeer>();
 		}
 		inline virtual void Accept(std::shared_ptr<UvTcpBasePeer>&& peer_) noexcept override {
-			auto peer = std::move(xx::Cast<RouterPeer>(peer_));
+			auto peer = std::move(xx::As<RouterPeer>(peer_));
 			peer->addr = ++router->addr;
 			peer->peers = &router->clientPeers;
 			peer->bb = &router->readBB;
@@ -130,7 +130,45 @@ namespace xx {
 
 // todo: 将当前 UvTcpPeer 里面路由相关移除
 namespace xx {
+	struct UvTcpRouterListener;
+	struct UvTcpRouterListenerPeer : UvTcpBasePeer {
+		size_t indexAtContainer = -1;
+		UvTcpRouterListener* listener = nullptr;
 
+		UvTcpRouterListenerPeer() = default;
+		UvTcpRouterListenerPeer(UvTcpRouterListenerPeer const&) = delete;
+		UvTcpRouterListenerPeer& operator=(UvTcpRouterListenerPeer const&) = delete;
+
+		virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen) noexcept override {
+			// todo
+			return 0;
+		}
+	};
+	using UvTcpRouterListenerPeer_s = std::shared_ptr<UvTcpRouterListenerPeer>;
+	using UvTcpRouterListenerPeer_w = std::weak_ptr<UvTcpRouterListenerPeer>;
+
+	struct UvTcpRouterListener : UvTcpBaseListener {
+		xx::List<UvTcpRouterListenerPeer_s> peers;
+
+		UvTcpRouterListener() = default;
+		UvTcpRouterListener(UvTcpRouterListener const&) = delete;
+		UvTcpRouterListener& operator=(UvTcpRouterListener const&) = delete;
+
+		inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
+			return std::make_shared<UvTcpRouterListenerPeer>();
+		}
+		inline virtual void Accept(std::shared_ptr<UvTcpBasePeer>&& peer_) noexcept override {
+			auto peer = std::move(xx::As<UvTcpRouterListenerPeer>(peer_));
+			peer->listener = this;
+			peer->OnDisconnect = [this, peer_w = UvTcpRouterListenerPeer_w(peer)]{
+				auto peer = peer_w.lock();
+				peer->listener->peers[peer->listener->peers.len - 1]->indexAtContainer = peer->indexAtContainer;
+				peer->listener->peers.SwapRemoveAt(peer->indexAtContainer);
+			};
+			peer->indexAtContainer = peers.len;
+			peers.Add(std::move(peer));
+		}
+	};
 }
 
 void RunServer1() {

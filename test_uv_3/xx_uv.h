@@ -513,7 +513,7 @@ namespace xx {
 		}
 		inline virtual void Accept(std::shared_ptr<UvTcpBasePeer>&& peer) noexcept override {
 			if (OnAccept) {
-				OnAccept(std::move(xx::Cast<UvTcpPeer>(peer)));
+				OnAccept(std::move(xx::As<UvTcpPeer>(peer)));
 			}
 		};
 	};
