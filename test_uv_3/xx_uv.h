@@ -366,15 +366,10 @@ namespace xx {
 		}
 	};
 
-	// pack struct: addr, serial, data
+	// pack struct: [addr,] serial, data
 	struct UvTcpPeer : UvTcpBasePeer {
 		BBuffer recvBB;			// for replace buf memory decode package
 		BBuffer sendBB;
-
-		std::function<int(int const& addr, uint8_t* const& recvBuf, uint32_t const& recvLen)> OnReceiveRoute;
-		std::function<int(int const& addr, Object_s&& msg)> OnReceiveRoutePush;
-		std::function<int(int const& addr, int const& serial, Object_s&& msg)> OnReceiveRouteRequest;
-
 		std::function<int(Object_s&& msg)> OnReceivePush;
 		std::function<int(int const& serial, Object_s&& msg)> OnReceiveRequest;
 		std::unordered_map<int, std::pair<std::function<int(Object_s&& msg)>, std::shared_ptr<UvTimer>>> callbacks;
@@ -402,32 +397,16 @@ namespace xx {
 			recvBB.cap = recvLen;
 			recvBB.offset = 0;
 
-			int addr = 0;
-			if (int r = recvBB.ReadFixed(addr)) return r;
-			if (addr && OnReceiveRoute) {
-				return OnReceiveRoute(addr, recvBuf, recvLen);
-			}
-
 			int serial = 0;
 			if (int r = recvBB.Read(serial)) return r;
 			Object_s msg;
 			if (int r = recvBB.ReadRoot(msg)) return r;
 
 			if (serial == 0) {
-				if (!addr) {
-					return OnReceivePush ? OnReceivePush(std::move(msg)) : 0;
-				}
-				else {
-					return OnReceiveRoutePush ? OnReceiveRoutePush(addr, std::move(msg)) : 0;
-				}
+				return OnReceivePush ? OnReceivePush(std::move(msg)) : 0;
 			}
 			else if (serial < 0) {
-				if (!addr) {
-					return OnReceiveRequest ? OnReceiveRequest(-serial, std::move(msg)) : 0;
-				}
-				else {
-					return OnReceiveRouteRequest ? OnReceiveRouteRequest(addr, -serial, std::move(msg)) : 0;
-				}
+				return OnReceiveRequest ? OnReceiveRequest(-serial, std::move(msg)) : 0;
 			}
 			else {
 				auto iter = callbacks.find(serial);
@@ -443,7 +422,7 @@ namespace xx {
 			if (Disposed()) return -1;
 			sendBB.Reserve(sizeof(uv_write_t_ex) + 4);				// skip uv_write_t_ex + header space
 			sendBB.len = sizeof(uv_write_t_ex) + 4;
-			sendBB.WriteFixed(addr);
+			if (addr) sendBB.WriteFixed(addr);
 			sendBB.Write(serial);
 			sendBB.WriteRoot(data);
 
@@ -576,7 +555,7 @@ namespace xx {
 		}
 
 		template<typename PeerType = UvTcpPeer, typename ENABLED = std::enable_if_t<std::is_base_of_v<UvTcpBasePeer, PeerType>>>
-		std::shared_ptr<PeerType>& Peer() const {
+		std::shared_ptr<PeerType>& PeerAs() const {
 			return *(std::shared_ptr<PeerType>*)&peer;
 		}
 

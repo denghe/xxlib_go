@@ -4,204 +4,161 @@
 #include <unordered_set>
 
 namespace xx {
-	struct RouterListener;
-	using RouterListener_s = std::shared_ptr<RouterListener>;
+
 	struct RouterPeer;
-	using RouterPeer_s = std::shared_ptr<RouterPeer>;
-	struct RouterDialer;
-	using RouterDialer_s = std::shared_ptr<RouterDialer>;
+	struct VPeer {
+		int addr = -1;
+		RouterPeer* peer = nullptr;
+		std::string ip;
+		std::function<int(Object_s&& msg)> OnReceivePush;
+		std::function<int(int const& serial, Object_s&& msg)> OnReceiveRequest;
+		std::function<void()> OnDisconnect;
 
-	struct Router : UvLoop {
-		BBuffer readBB;			// for replace buf memory decode package
-		int addr = 0;			// for gen client peer addr
-		std::unordered_map<int, RouterPeer_s> clientPeers;
-		std::unordered_map<int, RouterPeer_s> serverPeers;
-		std::shared_ptr<RouterListener> listener;
-		UvTimer_s timer;	// for auto dial
-		std::unordered_map<int, RouterDialer_s> dialers;
-		int RegisterDialer(int const& addr, std::string&& ip, int const& port) noexcept;
-
-		Router();
-		~Router() {
-			readBB.Reset();
-		}
+		// todo: SendXxxxx though owner
+		// todo: Dispose 时发起断线通知? 析构不发起?
 	};
+	using VPeer_s = std::shared_ptr<VPeer>;
+	using VPeer_w = std::weak_ptr<VPeer>;
 
-	// 包结构: addr(4), data( serial + pkg )
-	struct RouterPeer : UvTcpBasePeer {
-		BBuffer* bb = nullptr;										// for replace buf memory decode package
-		std::unordered_map<int, RouterPeer_s>* peers = nullptr;	// for find target peer
-		int addr = 0;
+
+	struct RouterPeer : UvTcpPeer {
+		std::unordered_map<int, VPeer_s> peers;
+		std::function<VPeer_s()> OnCreateVPeer;
+		std::function<int(VPeer_s&)> OnAcceptVPeer;
 
 		RouterPeer() = default;
 		RouterPeer(RouterPeer const&) = delete;
 		RouterPeer& operator=(RouterPeer const&) = delete;
 
-		virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen) noexcept {
-			bb->Reset(recvBuf, recvLen, 0);
+		virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen) noexcept override {
+			if (recvLen < 6) return 0;
 
-			decltype(this->addr) addr = 0;
-			if (int r = bb->ReadFixed(addr)) return r;
+			recvBB.buf = (uint8_t*)recvBuf;
+			xx::ScopeGuard sgBuf([&] {recvBB.buf = nullptr; });	// restore buf at func exit
+			recvBB.len = recvLen;
+			recvBB.cap = recvLen;
+			recvBB.offset = 0;
 
-			auto iter = peers->find(addr);
-			if (iter != peers->end()) {
-				memcpy(recvBuf, &this->addr, sizeof(this->addr));	// replace addr
-				return iter->second->Send(recvBuf, recvLen);
-			}
-			// todo: else 地址不存在的回执通知?
-			return 0;
-		}
-	};
+			int addr = 0;
+			if (int r = recvBB.ReadFixed(addr)) return r;
 
-	struct RouterDialer : UvTcpDialer {
-		using UvTcpDialer::UvTcpDialer;
-		Router* router = nullptr;
-		int addr = 0;
-		std::string ip;
-		int port = 0;
-		inline int Dial() {
-			return this->UvTcpDialer::Dial(ip, port, 2000);
-		}
-
-		inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept {
-			return std::make_shared<RouterPeer>();
-		}
-		inline virtual void Connect() noexcept {
-			auto peer = std::move(Peer<RouterPeer>());
-			peer->addr = addr;
-			peer->peers = &router->serverPeers;
-			peer->bb = &router->readBB;
-			router->serverPeers[peer->addr] = std::move(peer);
-		}
-	};
-
-	struct RouterListener : UvTcpBaseListener {
-		Router* router = nullptr;
-
-		RouterListener() = default;
-		RouterListener(RouterListener const&) = delete;
-		RouterListener& operator=(RouterListener const&) = delete;
-
-		inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
-			return std::make_shared<RouterPeer>();
-		}
-		inline virtual void Accept(std::shared_ptr<UvTcpBasePeer>&& peer_) noexcept override {
-			auto peer = std::move(xx::As<RouterPeer>(peer_));
-			peer->addr = ++router->addr;
-			peer->peers = &router->clientPeers;
-			peer->bb = &router->readBB;
-			router->clientPeers[peer->addr] = std::move(peer);
-		};
-	};
-
-	inline Router::Router()
-		: UvLoop() {
-		listener = CreateTcpListener<RouterListener>("0.0.0.0", 10000);
-		if (listener) {
-			listener->router = this;
-			std::cout << "router started...";
-		}
-
-		timer = CreateTimer<>(100, 500, [this] {
-			for (decltype(auto) kv : dialers) {
-				if (!serverPeers[kv.first] && !kv.second->State()) {
-					kv.second->Dial();
+			VPeer* peer = nullptr;
+			auto iter = peers.find(addr);
+			if (iter != peers.end()) {
+				if (recvLen == 6 && !recvBuf[4] && !recvBuf[5]) {
+					//iter->second->Dispose(true);
+					peers.erase(iter);
+					return 0;
+				}
+				else {
+					peer = &*iter->second; 
 				}
 			}
-		});
-	}
+			else {
+				if (recvLen <= 6 || recvBuf[4] || recvBuf[5]) return 0;		// addr(4 bytes), 0, 0, ip string\0
+				auto p = OnCreateVPeer();
+				if (!p) return 0;
+				p->addr = addr;
+				p->ip = (char*)recvBuf[6];
+				if (OnAcceptVPeer(p)) {
+					Send(recvBuf, 6);							// todo: 回复断线给对方?
+					return 0;
+				}
+				p->peer = this;
+				peers[addr] = p;
+				peer = &*p;
+			}
 
-	inline int Router::RegisterDialer(int const& addr, std::string&& ip, int const& port) noexcept {
-		if (dialers.find(addr) == dialers.end()) return -1;
-		auto dialer = CreateTcpDialer<RouterDialer>();
-		if (!dialer) return -2;
-		dialer->addr = addr;
-		dialer->ip = std::move(ip);
-		dialer->port = port;
-		dialers[addr] = dialer;
-		return 0;
-	}
-}
+			int serial = 0;
+			if (int r = recvBB.Read(serial)) return r;
+			Object_s msg;
+			if (int r = recvBB.ReadRoot(msg)) return r;
 
-// todo: UvTcpRouterListener UvTcpRouterListenerPeer UvTcpRouterListenerPeerPeer  UvTcpRouterDialer UvTcpRouterDialerPeer UvTcpRouterDialerPeerDialer UvTcpRouterDialerPeerDialerPeer
-// UvTcpRouterListener: 本身自己管理 Accept 后的 UvTcpRouterListenerPeer, 然后提供在收到握手协议之后的相关事件 UvTcpRouterListenerPeerPeer
-// UvTcpRouterDialer: 本身自己管理 Connect 后的 UvTcpRouterDialerPeer, 用户与拨号成功后继续访问 UvTcpRouterDialerPeer 创建虚拟拨号器
-// UvTcpRouterDialerPeerDialer: 与 UvTcpDialer 用法差不多, 虚拟拨号, Connect 后得到 UvTcpRouterListenerPeerPeer
-
-// todo: 将当前 UvTcpPeer 里面路由相关移除
-namespace xx {
-	struct UvTcpRouterListener;
-	struct UvTcpRouterListenerPeer : UvTcpBasePeer {
-		size_t indexAtContainer = -1;
-		UvTcpRouterListener* listener = nullptr;
-
-		UvTcpRouterListenerPeer() = default;
-		UvTcpRouterListenerPeer(UvTcpRouterListenerPeer const&) = delete;
-		UvTcpRouterListenerPeer& operator=(UvTcpRouterListenerPeer const&) = delete;
-
-		virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen) noexcept override {
-			// todo
-			return 0;
+			if (serial == 0) {
+				return peer->OnReceivePush ? peer->OnReceivePush(std::move(msg)) : 0;
+			}
+			else if (serial < 0) {
+				return peer->OnReceiveRequest ? peer->OnReceiveRequest(-serial, std::move(msg)) : 0;
+			}
+			else {
+				auto iter = callbacks.find(serial);
+				if (iter == callbacks.end()) return 0;
+				int r = iter->second.first(std::move(msg));
+				callbacks.erase(iter);
+				return r;
+			}
 		}
 		virtual void Dispose(bool callback = true) noexcept override;
 	};
-	using UvTcpRouterListenerPeer_s = std::shared_ptr<UvTcpRouterListenerPeer>;
-	using UvTcpRouterListenerPeer_w = std::weak_ptr<UvTcpRouterListenerPeer>;
+	using RouterPeer_s = std::shared_ptr<RouterPeer>;
+	using RouterPeer_w = std::weak_ptr<RouterPeer>;
 
-	struct UvTcpRouterListener : UvTcpBaseListener {
-		xx::List<UvTcpRouterListenerPeer_s> peers;
+	//struct RouterListener : UvTcpBaseListener {
+	//	int idx = 0;
+	//	std::unordered_map<int, RouterPeer_s> routerPeers;
+	//	std::unordered_map<int, VPeer_s> peers;
 
-		UvTcpRouterListener() = default;
-		UvTcpRouterListener(UvTcpRouterListener const&) = delete;
-		UvTcpRouterListener& operator=(UvTcpRouterListener const&) = delete;
+	//	// todo: OnAccept( VPeer )
 
-		inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
-			return std::make_shared<UvTcpRouterListenerPeer>();
-		}
-		inline virtual void Accept(std::shared_ptr<UvTcpBasePeer>&& peer_) noexcept override {
-			auto peer = std::move(xx::As<UvTcpRouterListenerPeer>(peer_));
-			peer->listener = this;
-			peer->OnDisconnect = [this, peer_w = UvTcpRouterListenerPeer_w(peer)]{
-				auto peer = peer_w.lock();
+	//	RouterListener() = default;
+	//	RouterListener(RouterListener const&) = delete;
+	//	RouterListener& operator=(RouterListener const&) = delete;
 
-				// todo: 
+	//	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
+	//		return std::make_shared<RouterPeer>();
+	//	}
+	//	inline virtual void Accept(std::shared_ptr<UvTcpBasePeer>&& peer_) noexcept override {
+	//		routerPeer = std::move(xx::As<RouterPeer>(peer_));
+	//		peer->peers = &peers;
+	//		peer->indexAtContainer = peers.len;
+	//		peers.Add(std::move(peer));
+	//	}
+	//};
 
-				peer->listener->peers[peer->listener->peers.len - 1]->indexAtContainer = peer->indexAtContainer;
-				peer->listener->peers.SwapRemoveAt(peer->indexAtContainer);
-			};
-			peer->indexAtContainer = peers.len;
-			peers.Add(std::move(peer));
-		}
-	};
-
-	inline void UvTcpRouterListenerPeer::Dispose(bool callback) noexcept {
-		// todo: 级联关闭
+	inline void RouterPeer::Dispose(bool callback) noexcept {
 		if (!uvTcp) return;
-		// todo: Dispose all UvTcpRouterListenerPeerPeer
-		listener->peers[listener->peers.len - 1]->indexAtContainer = indexAtContainer;
-		listener->peers.SwapRemoveAt(indexAtContainer);
 		this->UvTcpBasePeer::Dispose(callback);
+		peers.clear();
 	}
 
+	//struct VDialer;
+	//using VDialer_s = std::shared_ptr<VDialer>;
+	//using VDialer_w = std::weak_ptr<VDialer>;
+
+	//struct RouterDialer : UvTcpDialer {
+	//	std::unordered_map<int, VDialer_s> dialers;
+	//	std::unordered_map<int, VPeer_s> peers;
+	//	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
+	//		auto peer = std::make_shared<RouterPeer>();
+	//		peer->peers = &peers;
+	//		return peer;
+	//	}
+	//	inline virtual void Connect() noexcept override {
+	//	}
+	//};
+
+	//struct VDialer {
+	//	VPeer_s peer;
+	//};
 }
 
-void RunServer1() {
-	xx::UvLoop loop;
-	std::unordered_set<xx::UvTcpPeer_s> peers;
-	auto listener = loop.CreateTcpListener<xx::UvTcpListener>("0.0.0.0", 10001);
-	assert(listener);
-	listener->OnAccept = [&peers](xx::UvTcpPeer_s&& peer) {
-		peer->OnReceiveRouteRequest = [peer_w = xx::UvTcpPeer_w(peer)](int const& addr, int const& serial, xx::Object_s&& msg)->int {
-			return peer_w.lock()->SendResponse(serial, msg, addr);
-		};
-		peer->OnDisconnect = [&peers, peer_w = xx::UvTcpPeer_w(peer)]{
-			peers.erase(peer_w.lock());
-		};
-		peers.insert(std::move(peer));
-	};
-	loop.Run();
-	std::cout << "server end.\n";
-}
+//void RunServer1() {
+//	xx::UvLoop loop;
+//	std::unordered_set<xx::UvTcpPeer_s> peers;
+//	auto listener = loop.CreateTcpListener<xx::RouterListener>("0.0.0.0", 10001);
+//	assert(listener);
+//	listener->OnAccept = [&peers](xx::UvTcpPeer_s&& peer) {
+//		peer->OnReceiveRouteRequest = [peer_w = xx::UvTcpPeer_w(peer)](int const& addr, int const& serial, xx::Object_s&& msg)->int {
+//			return peer_w.lock()->SendResponse(serial, msg, addr);
+//		};
+//		peer->OnDisconnect = [&peers, peer_w = xx::UvTcpPeer_w(peer)]{
+//			peers.erase(peer_w.lock());
+//		};
+//		peers.insert(std::move(peer));
+//	};
+//	loop.Run();
+//	std::cout << "server end.\n";
+//}
 
 void RunRouter() {
 
