@@ -91,21 +91,41 @@ private:
 	tcp::acceptor acceptor_;
 	tcp::socket socket_;
 };
-
+#include <thread>
 int main(int argc, char* argv[])
 {
+	short port = 12345;
 	try
 	{
-		if (argc != 2)
+		if (argc < 2)
 		{
-			std::cerr << "Usage: async_tcp_echo_server <port>\n";
-			return 1;
+			port = 12345;
+		}
+		else
+		{
+			port = std::atoi(argv[1]);
 		}
 
 		asio::io_context io_context;
 
-		server s(io_context, std::atoi(argv[1]));
+		server s(io_context, port);
 
+		std::thread thread1([&io_context]() { io_context.run(); });
+		std::thread thread2([&io_context]() { io_context.run(); });
+		std::thread thread3([&io_context]() { io_context.run(); });
+		std::thread thread4([&io_context]() { io_context.run(); });
+		std::thread thread5([&io_context]() { io_context.run(); });
+		std::thread thread6([&io_context]() { io_context.run(); });
+		std::thread thread7([&io_context]() { io_context.run(); });
+		std::thread thread8([&io_context]() { io_context.run(); });
+		thread1.join();
+		thread2.join();
+		thread3.join();
+		thread4.join();
+		thread5.join();
+		thread6.join();
+		thread7.join();
+		thread8.join();
 		io_context.run();
 	}
 	catch (std::exception& e)

@@ -143,6 +143,7 @@ namespace xx {
 			// todo
 			return 0;
 		}
+		virtual void Dispose(bool callback = true) noexcept override;
 	};
 	using UvTcpRouterListenerPeer_s = std::shared_ptr<UvTcpRouterListenerPeer>;
 	using UvTcpRouterListenerPeer_w = std::weak_ptr<UvTcpRouterListenerPeer>;
@@ -162,6 +163,9 @@ namespace xx {
 			peer->listener = this;
 			peer->OnDisconnect = [this, peer_w = UvTcpRouterListenerPeer_w(peer)]{
 				auto peer = peer_w.lock();
+
+				// todo: 
+
 				peer->listener->peers[peer->listener->peers.len - 1]->indexAtContainer = peer->indexAtContainer;
 				peer->listener->peers.SwapRemoveAt(peer->indexAtContainer);
 			};
@@ -169,6 +173,16 @@ namespace xx {
 			peers.Add(std::move(peer));
 		}
 	};
+
+	inline void UvTcpRouterListenerPeer::Dispose(bool callback) noexcept {
+		// todo: 级联关闭
+		if (!uvTcp) return;
+		// todo: Dispose all UvTcpRouterListenerPeerPeer
+		listener->peers[listener->peers.len - 1]->indexAtContainer = indexAtContainer;
+		listener->peers.SwapRemoveAt(indexAtContainer);
+		this->UvTcpBasePeer::Dispose(callback);
+	}
+
 }
 
 void RunServer1() {
