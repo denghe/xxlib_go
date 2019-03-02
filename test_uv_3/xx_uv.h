@@ -3,7 +3,7 @@
 #include "xx_bbuffer.h"
 
 // 重要：
-// std::function 的捕获列表不可以随意增加引用以导致无法析构, 使用 weak_ptr.
+// std::function 的捕获列表通常不可以随意增加引用以导致无法析构, 尽量使用 weak_ptr. 否则在 Dispose OnDisconnect 之类的回调中需要自己设置这些回调为 nullptr
 
 namespace xx {
 	struct UvTimer;
@@ -390,8 +390,6 @@ namespace xx {
 		std::unordered_map<int, std::pair<std::function<int(Object_s&& msg)>, UvTimer_s>> callbacks;
 		int serial = 0;
 
-		std::function<void()> OnDisconnect;
-
 		UvTcpPeer() = default;
 		UvTcpPeer(UvTcpPeer const&) = delete;
 		UvTcpPeer& operator=(UvTcpPeer const&) = delete;
@@ -590,6 +588,7 @@ namespace xx {
 				uv_cancel((uv_req_t*)kv.second);
 			}
 			reqs.clear();
+			serial = 0;
 			++batchNumber;
 		}
 

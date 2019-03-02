@@ -8,10 +8,9 @@ struct EchoPeer : xx::UvTcpBasePeer {
 	inline int Unpack(uint8_t* const& buf, uint32_t const& len) noexcept override {
 		return Send(buf, len);
 	}
-
 };
 struct EchoListener : xx::UvTcpBaseListener {
-	EchoLoop* loop;
+	EchoLoop* loop = nullptr;
 	inline virtual xx::UvTcpBasePeer_s CreatePeer() noexcept override {
 		return std::make_shared<EchoPeer>();
 	}

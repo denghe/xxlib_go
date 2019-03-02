@@ -29,7 +29,7 @@ namespace xx
 		size_t		cap;
 		size_t		len;
 
-		static std::shared_ptr<List<T>> Create() {
+		static std::shared_ptr<List<T>> MakeShared() {
 			return std::make_shared<List<T>>();
 		}
 

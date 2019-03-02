@@ -42,6 +42,10 @@ namespace xx {
 		static const bool value = true;
 	};
 
+	struct BBuffer;
+	using BBuffer_s = std::shared_ptr<BBuffer>;
+	using BBuffer_w = std::weak_ptr<BBuffer>;
+
 	struct BBuffer : Buffer {
 		size_t offset = 0;													// 读指针偏移量
 		size_t offsetRoot = 0;												// offset值写入修正
@@ -52,7 +56,7 @@ namespace xx {
 		std::unordered_map<size_t, std::shared_ptr<Object>> objIdxs;
 		std::unordered_map<size_t, std::shared_ptr<std::string>> strIdxs;
 
-		static std::shared_ptr<BBuffer> Create() {
+		static std::shared_ptr<BBuffer> MakeShared() {
 			return std::make_shared<BBuffer>();
 		}
 

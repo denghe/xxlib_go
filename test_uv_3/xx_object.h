@@ -330,6 +330,11 @@ namespace xx {
 		return v;
 	}
 
+	template<typename ...Args>
+	std::string_s MakeString(Args&&...args) {
+		return std::make_shared<std::string>(std::forward<Args>(args)...);
+	}
+
 	// unsafe. need more test
 	template<typename T, typename U>
 	std::shared_ptr<T>& As(std::shared_ptr<U>& v) {

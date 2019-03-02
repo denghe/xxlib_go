@@ -53,7 +53,7 @@ int main() {
 	auto client = loop.CreateTcpDialer<MyDialer>();
 	assert(client);
 	client->OnConnect = [client_w = MyDialer_w(client)]{
-		auto msg = xx::BBuffer::Create();
+		auto msg = xx::BBuffer::MakeShared();
 		msg->Write(1u, 2u, 3u, 4u, 5u);
 		client_w.lock()->PeerAs<>()->SendRequest(msg, [client_w] (xx::Object_s&&msg) {
 			return client_w.lock()->HandleMsg(std::move(msg));
