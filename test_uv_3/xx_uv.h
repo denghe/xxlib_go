@@ -6,6 +6,27 @@
 // std::function 的捕获列表不可以随意增加引用以导致无法析构, 使用 weak_ptr.
 
 namespace xx {
+	struct UvTimer;
+	using UvTimer_s = std::shared_ptr<UvTimer>;
+	using UvTimer_w = std::weak_ptr<UvTimer>;
+	struct UvResolver;
+	using UvResolver_s = std::shared_ptr<UvResolver>;
+	using UvResolver_w = std::weak_ptr<UvResolver>;
+	struct UvAsync;
+	using UvAsync_s = std::shared_ptr<UvAsync>;
+	using UvAsync_w = std::weak_ptr<UvAsync>;
+	struct UvTcpListener;
+	using UvTcpListener_s = std::shared_ptr<UvTcpListener>;
+	using UvTcpListener_w = std::weak_ptr<UvTcpListener>;
+	struct UvTcpDialer;
+	using UvTcpDialer_s = std::shared_ptr<UvTcpDialer>;
+	using UvTcpDialer_w = std::weak_ptr<UvTcpDialer>;
+	struct UvTcpBasePeer;
+	using UvTcpBasePeer_s = std::shared_ptr<UvTcpBasePeer>;
+	using UvTcpBasePeer_w = std::weak_ptr<UvTcpBasePeer>;
+	struct UvTcpPeer;
+	using UvTcpPeer_s = std::shared_ptr<UvTcpPeer>;
+	using UvTcpPeer_w = std::weak_ptr<UvTcpPeer>;
 
 	template<typename T>
 	T* UvAlloc(void* const& ud) noexcept {
@@ -33,12 +54,6 @@ namespace xx {
 		});
 	}
 
-	struct UvTimer;
-	struct UvResolver;
-	struct UvAsync;
-	struct UvTcpListener;
-	struct UvTcpDialer;
-
 	struct UvLoop {
 		uv_loop_t uvLoop;
 		UvLoop() {
@@ -51,8 +66,8 @@ namespace xx {
 			return uv_run(&uvLoop, mode);
 		}
 
-		std::shared_ptr<UvResolver> CreateResolver() noexcept;
-		std::shared_ptr<UvAsync> CreateAsync() noexcept;
+		UvResolver_s CreateResolver() noexcept;
+		UvAsync_s CreateAsync() noexcept;
 
 		template<typename ListenerType = UvTcpListener, typename ENABLED = std::enable_if_t<std::is_base_of_v<UvTcpBaseListener, ListenerType>>>
 		std::shared_ptr<ListenerType> CreateTcpListener(std::string const& ip, int const& port, int const& backlog = 128) noexcept;
@@ -156,7 +171,7 @@ namespace xx {
 	struct UvResolver : std::enable_shared_from_this<UvResolver> {
 		UvLoop& loop;
 		uv_getaddrinfo_t_ex* req = nullptr;
-		std::shared_ptr<UvTimer> timeouter;
+		UvTimer_s timeouter;
 		std::vector<std::string> ips;
 		std::function<void()> OnFinish;
 		std::function<void()> OnTimeout;
@@ -330,7 +345,7 @@ namespace xx {
 			return 0;
 		}
 
-		virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen) noexcept = 0;
+		inline virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen) noexcept { return 0; };
 
 		// reqbuf = uv_write_t_ex space + len space + data
 		// len = data's len
@@ -372,7 +387,7 @@ namespace xx {
 		BBuffer sendBB;
 		std::function<int(Object_s&& msg)> OnReceivePush;
 		std::function<int(int const& serial, Object_s&& msg)> OnReceiveRequest;
-		std::unordered_map<int, std::pair<std::function<int(Object_s&& msg)>, std::shared_ptr<UvTimer>>> callbacks;
+		std::unordered_map<int, std::pair<std::function<int(Object_s&& msg)>, UvTimer_s>> callbacks;
 		int serial = 0;
 
 		std::function<void()> OnDisconnect;
@@ -445,7 +460,7 @@ namespace xx {
 
 		inline int SendRequest(Object_s const& data, int const& addr, std::function<int(Object_s&& msg)>&& cb, uint64_t const& timeoutMS = 0) {
 			if (Disposed()) return -1;
-			std::pair<std::function<int(Object_s&& msg)>, std::shared_ptr<UvTimer>> v;
+			std::pair<std::function<int(Object_s&& msg)>, UvTimer_s> v;
 			++serial;
 			if (timeoutMS) {
 				v.second = container_of(uvTcp->loop, UvLoop, uvLoop)->CreateTimer(timeoutMS, 0, [this, serial = this->serial]() {
@@ -475,22 +490,22 @@ namespace xx {
 		UvTcpBaseListener(UvTcpBaseListener const&) = delete;
 		UvTcpBaseListener& operator=(UvTcpBaseListener const&) = delete;
 
-		inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept = 0;
-		inline virtual void Accept(std::shared_ptr<UvTcpBasePeer>&& peer) noexcept = 0;
+		inline virtual UvTcpBasePeer_s CreatePeer() noexcept = 0;
+		inline virtual void Accept(UvTcpBasePeer_s&& peer) noexcept = 0;
 	};
 
 	struct UvTcpListener : UvTcpBaseListener {
-		std::function<std::shared_ptr<UvTcpPeer>()> OnCreatePeer;
-		std::function<void(std::shared_ptr<UvTcpPeer>&& peer)> OnAccept;
+		std::function<UvTcpPeer_s()> OnCreatePeer;
+		std::function<void(UvTcpPeer_s&& peer)> OnAccept;
 
 		UvTcpListener() = default;
 		UvTcpListener(UvTcpListener const&) = delete;
 		UvTcpListener& operator=(UvTcpListener const&) = delete;
 
-		inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
+		inline virtual UvTcpBasePeer_s CreatePeer() noexcept override {
 			return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpPeer>();
 		}
-		inline virtual void Accept(std::shared_ptr<UvTcpBasePeer>&& peer) noexcept override {
+		inline virtual void Accept(UvTcpBasePeer_s&& peer) noexcept override {
 			if (OnAccept) {
 				OnAccept(std::move(xx::As<UvTcpPeer>(peer)));
 			}
@@ -527,7 +542,7 @@ namespace xx {
 	struct UvTcpDialer;
 	struct uv_connect_t_ex {
 		uv_connect_t req;
-		std::shared_ptr<UvTcpBasePeer> peer;	// temp holder
+		UvTcpBasePeer_s peer;	// temp holder
 		std::weak_ptr<UvTcpDialer> client_w;	// weak ref
 		int serial;
 		int batchNumber;
@@ -539,10 +554,10 @@ namespace xx {
 		int serial = 0;
 		std::unordered_map<int, uv_connect_t_ex*> reqs;
 		int batchNumber = 0;
-		std::shared_ptr<UvTimer> timeouter;		// singleton holder
-		std::shared_ptr<UvTcpBasePeer> peer;	// singleton holder
+		UvTimer_s timeouter;		// singleton holder
+		UvTcpBasePeer_s peer;	// singleton holder
 
-		std::function<std::shared_ptr<UvTcpBasePeer>()> OnCreatePeer;
+		std::function<UvTcpBasePeer_s()> OnCreatePeer;
 		std::function<void()> OnConnect;
 		std::function<void()> OnTimeout;
 
@@ -647,7 +662,7 @@ namespace xx {
 			}
 		}
 
-		inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept {
+		inline virtual UvTcpBasePeer_s CreatePeer() noexcept {
 			return std::make_shared<UvTcpPeer>();
 		}
 		inline virtual void Connect() noexcept {
@@ -668,11 +683,11 @@ namespace xx {
 		return std::make_shared<DialerType>(*this);
 	}
 
-	inline std::shared_ptr<UvResolver> UvLoop::CreateResolver() noexcept {
+	inline UvResolver_s UvLoop::CreateResolver() noexcept {
 		return std::make_shared<UvResolver>(*this);
 	}
 
-	inline std::shared_ptr<UvAsync> UvLoop::CreateAsync() noexcept {
+	inline UvAsync_s UvLoop::CreateAsync() noexcept {
 		auto async = std::make_shared<UvAsync>();
 		if (async->Init(&uvLoop)) return nullptr;
 		return async;
@@ -689,21 +704,4 @@ namespace xx {
 		return timer;
 	}
 
-	using UvTimer_s = std::shared_ptr<UvTimer>;
-	using UvTimer_w = std::weak_ptr<UvTimer>;
-
-	using UvResolver_s = std::shared_ptr<UvResolver>;
-	using UvResolver_w = std::weak_ptr<UvResolver>;
-
-	using UvAsync_s = std::shared_ptr<UvAsync>;
-	using UvAsync_w = std::weak_ptr<UvAsync>;
-
-	using UvTcpPeer_s = std::shared_ptr<UvTcpPeer>;
-	using UvTcpPeer_w = std::weak_ptr<UvTcpPeer>;
-
-	using UvTcpListener_s = std::shared_ptr<UvTcpListener>;
-	using UvTcpListener_w = std::weak_ptr<UvTcpListener>;
-
-	using UvTcpDialer_s = std::shared_ptr<UvTcpDialer>;
-	using UvTcpDialer_w = std::weak_ptr<UvTcpDialer>;
 }

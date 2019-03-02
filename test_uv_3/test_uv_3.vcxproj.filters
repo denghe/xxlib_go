@@ -6,7 +6,6 @@
   <ItemGroup>
     <ClInclude Include="test_xx_uv_coroutine.h" />
     <ClInclude Include="test_xx_uv_stackless.h" />
-    <ClInclude Include="test_xx_uv_echo.h" />
     <ClInclude Include="xx_bbuffer.h">
       <Filter>xx</Filter>
     </ClInclude>

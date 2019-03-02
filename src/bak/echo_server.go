@@ -1,6 +1,7 @@
 package bak
 
 import (
+	"io"
 	"net"
 )
 
@@ -11,10 +12,11 @@ func EchoServer() {
 	for {
 		c, _ := listener.Accept()
 		go func() {
+			io.Copy
 			defer func() {
 				_ = c.Close()
 			}()
-			buf := make([]byte, 10)
+			buf := make([]byte, 1024*1024)
 			for {
 				n, err := c.Read(buf)
 				if err != nil {
