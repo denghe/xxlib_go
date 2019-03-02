@@ -1,30 +1,21 @@
 ﻿#include "xx_uv.h"
 #include <unordered_set>
 
-struct EchoLoop : xx::UvLoop {
-	std::unordered_set<xx::UvTcpBasePeer_s> peers;
-};
 struct EchoPeer : xx::UvTcpBasePeer {
 	inline int Unpack(uint8_t* const& buf, uint32_t const& len) noexcept override {
 		return Send(buf, len);
 	}
 };
-struct EchoListener : xx::UvTcpBaseListener {
-	EchoLoop* loop = nullptr;
-	inline virtual xx::UvTcpBasePeer_s CreatePeer() noexcept override {
-		return std::make_shared<EchoPeer>();
+int main(int argc, char* argv[]) {
+	if (argc < 2) {
+		std::cout << "need args: port\n";
+		return -1;
 	}
-	inline virtual void Accept(xx::UvTcpBasePeer_s&& peer) noexcept override {
-		peer->OnDisconnect = [loop = this->loop, peer_w = xx::UvTcpBasePeer_w(peer)] {
-			loop->peers.erase(peer_w.lock());
-		};
-		loop->peers.insert(std::move(peer));
-	}
-};
-int main() {
-	EchoLoop loop;
-	auto listener = loop.CreateTcpListener<EchoListener>("0.0.0.0", 12345);
-	listener->loop = &loop;
+	xx::UvLoop loop;
+	auto listener = loop.CreateTcpListener<xx::UvTcpListener<EchoPeer>>("0.0.0.0", std::atoi(argv[1]));
+	listener->OnAccept = [](std::shared_ptr<EchoPeer>&& peer) {
+		peer->OnDisconnect = [peer] {};								// hold memory
+	};
 	loop.Run();
 	return 0;
 }

@@ -61,8 +61,9 @@ struct Peer : xx::UvTcpBasePeer {
 	}
 };
 
-struct Dialer : xx::UvTcpDialer {
-	using UvTcpDialer::UvTcpDialer;
+struct Dialer : xx::UvTcpDialer<Peer> {
+	using BaseType = xx::UvTcpDialer<Peer>;
+	using BaseType::BaseType;
 	Loop* loop = nullptr;
 	int addr = 0;
 	std::string ip;
@@ -71,11 +72,7 @@ struct Dialer : xx::UvTcpDialer {
 		return this->UvTcpDialer::Dial(ip, port, 2000);
 	}
 
-	inline virtual std::shared_ptr<xx::UvTcpBasePeer> CreatePeer() noexcept {
-		return std::make_shared<Peer>();
-	}
 	inline virtual void Connect() noexcept {
-		auto peer = std::move(PeerAs<Peer>());
 		peer->addr = addr;
 		peer->peers = &loop->serverPeers;
 		peer->loop = loop;
@@ -83,18 +80,14 @@ struct Dialer : xx::UvTcpDialer {
 	}
 };
 
-struct Listener : xx::UvTcpBaseListener {
+struct Listener : xx::UvTcpListener<Peer> {
 	Loop* loop = nullptr;
 
 	Listener() = default;
 	Listener(Listener const&) = delete;
 	Listener& operator=(Listener const&) = delete;
 
-	inline virtual std::shared_ptr<xx::UvTcpBasePeer> CreatePeer() noexcept override {
-		return std::make_shared<Peer>();
-	}
-	inline virtual void Accept(std::shared_ptr<xx::UvTcpBasePeer>&& peer_) noexcept override {
-		auto peer = std::move(xx::As<Peer>(peer_));
+	inline virtual void Accept(std::shared_ptr<Peer>&& peer) noexcept override {
 		peer->addr = ++loop->addr;
 		peer->peers = &loop->clientPeers;
 		peer->loop = loop;
@@ -126,7 +119,7 @@ inline Loop::Loop()
 
 inline int Loop::RegisterDialer(int const& addr, std::string&& ip, int const& port) noexcept {
 	if (dialers.find(addr) == dialers.end()) return -1;
-	auto dialer = CreateTcpDialer<Dialer>();
+	auto dialer = std::make_shared<Dialer>(*this);
 	if (!dialer) return -2;
 	dialer->addr = addr;
 	dialer->ip = std::move(ip);

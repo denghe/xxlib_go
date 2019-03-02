@@ -322,10 +322,10 @@ namespace xx {
 
 
 
-	// make_shared helper
+	// make_shared, weak helpers
 
 	template<typename T, typename ...Args>
-	std::shared_ptr<T>& MakeShared(std::shared_ptr<T>& v, Args&&...args) {
+	std::shared_ptr<T>& Fill(std::shared_ptr<T>& v, Args&&...args) {
 		v = std::make_shared<T>(std::forward<Args>(args)...);
 		return v;
 	}
@@ -333,6 +333,11 @@ namespace xx {
 	template<typename ...Args>
 	std::string_s MakeString(Args&&...args) {
 		return std::make_shared<std::string>(std::forward<Args>(args)...);
+	}
+
+	template<typename T, typename U>
+	std::weak_ptr<T> Weak(std::shared_ptr<T>& v) {
+		return std::weak_ptr<T>(v);
 	}
 
 	// unsafe. need more test

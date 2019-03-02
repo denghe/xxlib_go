@@ -56,10 +56,6 @@ namespace xx {
 		std::unordered_map<size_t, std::shared_ptr<Object>> objIdxs;
 		std::unordered_map<size_t, std::shared_ptr<std::string>> strIdxs;
 
-		static std::shared_ptr<BBuffer> MakeShared() {
-			return std::make_shared<BBuffer>();
-		}
-
 		using Buffer::Buffer;
 		BBuffer(BBuffer&& o)
 			: Buffer(std::move(o))

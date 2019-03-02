@@ -15,15 +15,6 @@ namespace xx {
 	struct UvAsync;
 	using UvAsync_s = std::shared_ptr<UvAsync>;
 	using UvAsync_w = std::weak_ptr<UvAsync>;
-	struct UvTcpListener;
-	using UvTcpListener_s = std::shared_ptr<UvTcpListener>;
-	using UvTcpListener_w = std::weak_ptr<UvTcpListener>;
-	struct UvTcpDialer;
-	using UvTcpDialer_s = std::shared_ptr<UvTcpDialer>;
-	using UvTcpDialer_w = std::weak_ptr<UvTcpDialer>;
-	struct UvTcpBasePeer;
-	using UvTcpBasePeer_s = std::shared_ptr<UvTcpBasePeer>;
-	using UvTcpBasePeer_w = std::weak_ptr<UvTcpBasePeer>;
 	struct UvTcpPeer;
 	using UvTcpPeer_s = std::shared_ptr<UvTcpPeer>;
 	using UvTcpPeer_w = std::weak_ptr<UvTcpPeer>;
@@ -66,14 +57,12 @@ namespace xx {
 			return uv_run(&uvLoop, mode);
 		}
 
-		UvResolver_s CreateResolver() noexcept;
+		// 下列 Create 系列主用于创建初始步骤略微复杂的对象, 也是一种示例
+
 		UvAsync_s CreateAsync() noexcept;
 
-		template<typename ListenerType = UvTcpListener, typename ENABLED = std::enable_if_t<std::is_base_of_v<UvTcpBaseListener, ListenerType>>>
+		template<typename ListenerType = UvTcpListener<UvTcpPeer>>
 		std::shared_ptr<ListenerType> CreateTcpListener(std::string const& ip, int const& port, int const& backlog = 128) noexcept;
-
-		template<typename DialerType = UvTcpDialer, typename ENABLED = std::enable_if_t<std::is_base_of_v<UvTcpDialer, DialerType>>>
-		std::shared_ptr<DialerType> CreateTcpDialer() noexcept;
 
 		template<typename TimerType = UvTimer, typename ENABLED = std::enable_if_t<std::is_base_of_v<UvTimer, TimerType>>>
 		std::shared_ptr<TimerType> CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire = nullptr) noexcept;
@@ -309,6 +298,7 @@ namespace xx {
 			UvHandleCloseAndFree(uvTcp);
 			if (callback && OnDisconnect) {
 				OnDisconnect();
+				OnDisconnect = nullptr;		// 如果 peer 被该 func 持有, 可能导致 peer 内存释放
 			}
 		}
 
@@ -483,34 +473,26 @@ namespace xx {
 		}
 	};
 
-	struct UvTcpBaseListener : UvTcp {
-		UvTcpBaseListener() = default;
-		UvTcpBaseListener(UvTcpBaseListener const&) = delete;
-		UvTcpBaseListener& operator=(UvTcpBaseListener const&) = delete;
-
-		inline virtual UvTcpBasePeer_s CreatePeer() noexcept = 0;
-		inline virtual void Accept(UvTcpBasePeer_s&& peer) noexcept = 0;
-	};
-
-	struct UvTcpListener : UvTcpBaseListener {
-		std::function<UvTcpPeer_s()> OnCreatePeer;
-		std::function<void(UvTcpPeer_s&& peer)> OnAccept;
+	template<typename PeerType = UvTcpPeer>
+	struct UvTcpListener : UvTcp {
+		std::function<std::shared_ptr<PeerType>()> OnCreatePeer;
+		std::function<void(std::shared_ptr<PeerType>&& peer)> OnAccept;
 
 		UvTcpListener() = default;
 		UvTcpListener(UvTcpListener const&) = delete;
 		UvTcpListener& operator=(UvTcpListener const&) = delete;
 
-		inline virtual UvTcpBasePeer_s CreatePeer() noexcept override {
-			return OnCreatePeer ? OnCreatePeer() : std::make_shared<UvTcpPeer>();
+		inline virtual std::shared_ptr<PeerType> CreatePeer() noexcept {
+			return OnCreatePeer ? OnCreatePeer() : std::make_shared<PeerType>();
 		}
-		inline virtual void Accept(UvTcpBasePeer_s&& peer) noexcept override {
+		inline virtual void Accept(std::shared_ptr<PeerType>&& peer) noexcept {
 			if (OnAccept) {
-				OnAccept(std::move(xx::As<UvTcpPeer>(peer)));
+				OnAccept(std::move(peer));
 			}
 		};
 	};
 
-	template<typename ListenerType, typename ENABLED>
+	template<typename ListenerType>
 	inline std::shared_ptr<ListenerType> UvLoop::CreateTcpListener(std::string const& ip, int const& port, int const& backlog) noexcept {
 		auto listener = std::make_shared<ListenerType>();
 		if (listener->Init(&uvLoop)) return nullptr;
@@ -537,25 +519,31 @@ namespace xx {
 		return listener;
 	}
 
+	template<typename PeerType = UvTcpPeer>
 	struct UvTcpDialer;
+
+	template<typename PeerType>
 	struct uv_connect_t_ex {
 		uv_connect_t req;
-		UvTcpBasePeer_s peer;	// temp holder
-		std::weak_ptr<UvTcpDialer> client_w;	// weak ref
+		std::shared_ptr<PeerType> peer;	// temp holder
+		std::weak_ptr<UvTcpDialer<PeerType>> client_w;	// weak ref
 		int serial;
 		int batchNumber;
 		~uv_connect_t_ex();
 	};
 
-	struct UvTcpDialer : std::enable_shared_from_this<UvTcpDialer> {
+	template<typename PeerType>
+	struct UvTcpDialer : std::enable_shared_from_this<UvTcpDialer<PeerType>> {
+		using PeerType_s = std::shared_ptr<PeerType>;
+		using ReqType = uv_connect_t_ex<PeerType>;
 		UvLoop& loop;
 		int serial = 0;
-		std::unordered_map<int, uv_connect_t_ex*> reqs;
+		std::unordered_map<int, ReqType*> reqs;
 		int batchNumber = 0;
 		UvTimer_s timeouter;		// singleton holder
-		UvTcpBasePeer_s peer;	// singleton holder
+		PeerType_s peer;	// singleton holder
 
-		std::function<UvTcpBasePeer_s()> OnCreatePeer;
+		std::function<PeerType_s()> OnCreatePeer;
 		std::function<void()> OnConnect;
 		std::function<void()> OnTimeout;
 
@@ -565,11 +553,6 @@ namespace xx {
 
 		virtual ~UvTcpDialer() {
 			Cleanup();
-		}
-
-		template<typename PeerType = UvTcpPeer, typename ENABLED = std::enable_if_t<std::is_base_of_v<UvTcpBasePeer, PeerType>>>
-		std::shared_ptr<PeerType>& PeerAs() const {
-			return *(std::shared_ptr<PeerType>*)&peer;
 		}
 
 		// 0: free    1: dialing    2: connected
@@ -601,7 +584,7 @@ namespace xx {
 						self->OnTimeout();
 					}
 				}
-				});
+			});
 			return timeouter ? 0 : -1;
 		}
 
@@ -620,7 +603,7 @@ namespace xx {
 
 			if (int r = SetTimeout(timeoutMS)) return r;
 
-			auto req = std::make_unique<uv_connect_t_ex>();
+			auto req = std::make_unique<ReqType>();
 			req->peer = CreatePeer();
 			if (req->peer->Init(&loop.uvLoop)) return -2;
 
@@ -629,7 +612,7 @@ namespace xx {
 			req->batchNumber = batchNumber;
 
 			if (uv_tcp_connect(&req->req, req->peer->uvTcp, (sockaddr*)&addr, [](uv_connect_t* conn, int status) {
-				auto req = std::unique_ptr<uv_connect_t_ex>(container_of(conn, uv_connect_t_ex, req));
+				auto req = std::unique_ptr<ReqType>(container_of(conn, ReqType, req));
 				auto client = req->client_w.lock();
 				if (!client) return;
 				if (status) return;													// error or -4081 canceled
@@ -661,8 +644,8 @@ namespace xx {
 			}
 		}
 
-		inline virtual UvTcpBasePeer_s CreatePeer() noexcept {
-			return std::make_shared<UvTcpPeer>();
+		inline virtual PeerType_s CreatePeer() noexcept {
+			return OnCreatePeer ? OnCreatePeer() : std::make_shared<PeerType>();
 		}
 		inline virtual void Connect() noexcept {
 			if (OnConnect) {
@@ -671,19 +654,11 @@ namespace xx {
 		}
 	};
 
-	inline uv_connect_t_ex::~uv_connect_t_ex() {
+	template<typename PeerType>
+	inline uv_connect_t_ex<PeerType>::~uv_connect_t_ex() {
 		if (auto client = client_w.lock()) {
 			client->reqs.erase(serial);
 		}
-	}
-
-	template<typename DialerType, typename ENABLED>
-	inline std::shared_ptr<DialerType> UvLoop::CreateTcpDialer() noexcept {
-		return std::make_shared<DialerType>(*this);
-	}
-
-	inline UvResolver_s UvLoop::CreateResolver() noexcept {
-		return std::make_shared<UvResolver>(*this);
 	}
 
 	inline UvAsync_s UvLoop::CreateAsync() noexcept {
@@ -702,5 +677,4 @@ namespace xx {
 		if (timer->Start(timeoutMS, repeatIntervalMS)) return nullptr;
 		return timer;
 	}
-
 }

@@ -4,8 +4,8 @@
 #include <iostream>
 #include <thread>
 
-struct MyDialer : xx::UvTcpDialer {
-	using BaseType = xx::UvTcpDialer;
+struct MyDialer : xx::UvTcpDialer<xx::UvTcpPeer> {
+	using BaseType = xx::UvTcpDialer<xx::UvTcpPeer>;
 	using BaseType::BaseType;
 	int counter = 0;
 	std::chrono::time_point<std::chrono::system_clock> t = std::chrono::system_clock::now();
@@ -19,7 +19,7 @@ struct MyDialer : xx::UvTcpDialer {
 			std::cout << double(std::chrono::nanoseconds(std::chrono::system_clock::now() - t).count()) / 1000000000 << std::endl;
 			return -1;
 		}
-		return PeerAs<>()->SendRequest(msg, [this](xx::Object_s&&msg) {
+		return peer->SendRequest(msg, [this](xx::Object_s&&msg) {
 			return HandleMsg(std::move(msg));
 		}, 1000);
 	}
@@ -30,7 +30,7 @@ using MyDialer_w = std::weak_ptr<MyDialer>;
 void RunServer() {
 	xx::UvLoop loop;
 	std::unordered_set<xx::UvTcpPeer_s> peers;
-	auto listener = loop.CreateTcpListener<xx::UvTcpListener>("0.0.0.0", 12345);
+	auto listener = loop.CreateTcpListener<xx::UvTcpListener<>>("0.0.0.0", 12345);
 	assert(listener);
 	listener->OnAccept = [&peers](xx::UvTcpPeer_s&& peer) {
 		peer->OnReceiveRequest = [peer_w = xx::UvTcpPeer_w(peer)](int const& serial, xx::Object_s&& msg)->int {
@@ -50,12 +50,12 @@ int main() {
 	std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
 	xx::UvLoop loop;
-	auto client = loop.CreateTcpDialer<MyDialer>();
+	auto client = std::make_shared<MyDialer>(loop);
 	assert(client);
 	client->OnConnect = [client_w = MyDialer_w(client)]{
-		auto msg = xx::BBuffer::MakeShared();
+		auto msg = std::make_shared<xx::BBuffer>();
 		msg->Write(1u, 2u, 3u, 4u, 5u);
-		client_w.lock()->PeerAs<>()->SendRequest(msg, [client_w] (xx::Object_s&&msg) {
+		client_w.lock()->peer->SendRequest(msg, [client_w] (xx::Object_s&&msg) {
 			return client_w.lock()->HandleMsg(std::move(msg));
 		}, 0);
 	};
