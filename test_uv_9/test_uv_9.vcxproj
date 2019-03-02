@@ -14,7 +14,7 @@
     <VCProjectVersion>15.0</VCProjectVersion>
     <ProjectGuid>{85039DD4-098C-4B31-924A-0F4D884DF2FD}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>test_uv_4</RootNamespace>
+    <RootNamespace>test_uv_9</RootNamespace>
     <WindowsTargetPlatformVersion>8.1</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
