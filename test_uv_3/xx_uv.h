@@ -3,7 +3,8 @@
 #include "xx_bbuffer.h"
 
 // 重要：
-// std::function 的捕获列表通常不可以随意增加引用以导致无法析构, 尽量使用 weak_ptr. 否则在 Dispose OnDisconnect 之类的回调中需要自己设置这些回调为 nullptr
+// std::function 的捕获列表通常不可以随意增加引用以导致无法析构, 尽量使用 weak_ptr. 
+// 当前唯有 UvTcpPeer OnDisconnect, OnReceivePush, OnReceiveRequest 可以使用 shared_ptr 捕获, 会在 Dispose 时自动清除
 
 namespace xx {
 	struct UvTimer;
@@ -259,7 +260,7 @@ namespace xx {
 		}
 	};
 
-	struct UvTcp {
+	struct UvTcp : std::enable_shared_from_this<UvTcp> {
 		uv_tcp_t* uvTcp = nullptr;
 
 		inline bool Disposed() noexcept {
@@ -390,6 +391,9 @@ namespace xx {
 				kv.second.first(nullptr);
 			}
 			callbacks.clear();
+			auto self = shared_from_this();		// hold memory
+			OnReceivePush = nullptr;
+			OnReceiveRequest = nullptr;
 			this->UvTcpBasePeer::Dispose(callback);
 		}
 
