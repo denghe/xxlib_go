@@ -54,6 +54,7 @@ namespace xx {
 
 		inline virtual void Dispose(bool callback = true) noexcept {
 			if (disposed) return;
+			disposed = true;
 			if (callback && OnDisconnect) {
 				OnDisconnect();
 				OnDisconnect = nullptr;		// 如果 peer 被该 func 持有, 可能导致 peer 内存释放
