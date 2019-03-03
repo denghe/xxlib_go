@@ -1,6 +1,9 @@
 ﻿#pragma once
 #include "uv.h"
 #include "xx_bbuffer.h"
+#include "ikcp.h"
+
+// todo: CreateXxxxx 放到外面来. 方便扩展
 
 // 重要：
 // std::function 的捕获列表通常不可以随意增加引用以导致无法析构, 尽量使用 weak_ptr. 
@@ -19,6 +22,8 @@ namespace xx {
 	struct UvTcpPeer;
 	using UvTcpPeer_s = std::shared_ptr<UvTcpPeer>;
 	using UvTcpPeer_w = std::weak_ptr<UvTcpPeer>;
+	template<typename PeerType = UvTcpPeer>
+	struct UvTcpListener;
 
 	template<typename T>
 	T* UvAlloc(void* const& ud) noexcept {
@@ -45,6 +50,10 @@ namespace xx {
 			UvFree(handle);
 		});
 	}
+	static void UvAllocCB(uv_handle_t* h, size_t suggested_size, uv_buf_t* buf) noexcept {
+		buf->base = (char*)::malloc(suggested_size);
+		buf->len = decltype(uv_buf_t::len)(suggested_size);
+	}
 
 	struct UvLoop {
 		uv_loop_t uvLoop;
@@ -58,13 +67,16 @@ namespace xx {
 			return uv_run(&uvLoop, mode);
 		}
 
-		// 下列 Create 系列主用于创建初始步骤略微复杂的对象, 也是一种示例
+		// 下列 Create 系列主用于创建初始步骤略微复杂的对象. 通常直接 std::make_shared
 
+		// make + init
 		UvAsync_s CreateAsync() noexcept;
 
-		template<typename ListenerType = UvTcpListener<UvTcpPeer>>
+		// make + addr + bind + listen
+		template<typename ListenerType = UvTcpListener<>>
 		std::shared_ptr<ListenerType> CreateTcpListener(std::string const& ip, int const& port, int const& backlog = 128) noexcept;
 
+		// make + init + start
 		template<typename TimerType = UvTimer, typename ENABLED = std::enable_if_t<std::is_base_of_v<UvTimer, TimerType>>>
 		std::shared_ptr<TimerType> CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire = nullptr) noexcept;
 	};
@@ -311,15 +323,12 @@ namespace xx {
 
 		inline int ReadStart() noexcept {
 			if (!uvTcp) return -1;
-			return uv_read_start((uv_stream_t*)uvTcp, [](uv_handle_t* h, size_t suggested_size, uv_buf_t* buf) {
-				buf->base = (char*)malloc(suggested_size);
-				buf->len = decltype(uv_buf_t::len)(suggested_size);
-			}, [](uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
+			return uv_read_start((uv_stream_t*)uvTcp, UvAllocCB, [](uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
 				auto self = UvGetSelf<UvTcpBasePeer>(stream);
 				if (nread > 0) {
 					nread = self->Unpack((uint8_t*)buf->base, (uint32_t)nread);
 				}
-				free(buf->base);
+				if(buf) ::free(buf->base);
 				if (nread < 0) {
 					self->Dispose();	// call OnDisconnect
 				}
@@ -362,7 +371,7 @@ namespace xx {
 			if (!uvTcp) return -1;
 			// todo: check send queue len ? protect?  uv_stream_get_write_queue_size((uv_stream_t*)uvTcp);
 			int r = uv_write(req, (uv_stream_t*)uvTcp, &req->buf, 1, [](uv_write_t *req, int status) {
-				free(req);
+				::free(req);
 			});
 			if (r) Dispose(false);	// do not call OnDisconnect
 			return r;
@@ -370,7 +379,7 @@ namespace xx {
 
 		inline int Send(uint8_t const* const& buf, ssize_t const& dataLen) noexcept {
 			if (!uvTcp) return -1;
-			auto req = (uv_write_t_ex*)malloc(sizeof(uv_write_t_ex) + dataLen);
+			auto req = (uv_write_t_ex*)::malloc(sizeof(uv_write_t_ex) + dataLen);
 			memcpy(req + 1, buf, dataLen);
 			req->buf.base = (char*)(req + 1);
 			req->buf.len = decltype(uv_buf_t::len)(dataLen);
@@ -483,7 +492,7 @@ namespace xx {
 		}
 	};
 
-	template<typename PeerType = UvTcpPeer>
+	template<typename PeerType>
 	struct UvTcpListener : UvTcp {
 		std::function<std::shared_ptr<PeerType>()> OnCreatePeer;
 		std::function<void(std::shared_ptr<PeerType>&& peer)> OnAccept;

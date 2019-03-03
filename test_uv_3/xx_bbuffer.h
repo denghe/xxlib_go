@@ -1,5 +1,6 @@
 #pragma once
 #include "xx_list.h"
+#include "xx_random.h"
 
 namespace xx {
 
@@ -338,6 +339,21 @@ namespace xx {
 	}
 
 
+	inline void Random::ToBBuffer(BBuffer& bb) const noexcept {
+		// data len = 2 int + int[56] = 4 * 58 = 232
+		bb.Reserve(bb.len + 232);
+		memcpy(bb.buf + bb.len, &inext, 232);
+		bb.len += 232;
+	}
+
+	inline int Random::FromBBuffer(BBuffer& bb) noexcept {
+		if (bb.offset + 232 > bb.len) return -1;
+		memcpy(&inext, bb.buf + bb.offset, 232);
+		bb.offset += 232;
+		return 0;
+	}
+
+
 	// 适配 1 字节长度的 数值 或 float( 这些类型直接 memcpy )
 	template<typename T>
 	struct BFuncs<T, std::enable_if_t< (std::is_arithmetic_v<T> && sizeof(T) == 1) || (std::is_floating_point_v<T> && sizeof(T) == 4) >> {
@@ -487,6 +503,22 @@ namespace xx {
 			return 0;
 		}
 	};
+
+	// 适配 Guid
+	template<>
+	struct BFuncs<Guid, void> {
+		static inline void WriteTo(BBuffer& bb, Guid const& in) noexcept {
+			bb.AddRange((uint8_t*)&in, sizeof(Guid));
+		}
+		static inline int ReadFrom(BBuffer& bb, Guid& out) noexcept {
+			if (bb.offset + sizeof(Guid) > bb.len) return -1;
+			memcpy(&out, bb.buf + bb.offset, sizeof(Guid));
+			bb.offset += sizeof(Guid);
+			return 0;
+		}
+	};
+
+	// todo: 适配 std::optional<T>
 
 	template<typename ...TS>
 	void BBuffer::Write(TS const& ...vs) noexcept {

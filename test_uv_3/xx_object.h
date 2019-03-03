@@ -106,6 +106,14 @@ size_t _countof_helper(T const (&arr)[N])
 #endif
 
 
+#ifdef __ANDROID_NDK__
+extern void uuid_generate(unsigned char* buf);
+#else
+#ifndef _WIN32
+#include <uuid/uuid.h>
+#endif
+#endif
+
 
 namespace std {
 	using string_s = shared_ptr<string>;
@@ -325,7 +333,7 @@ namespace xx {
 	// make_shared, weak helpers
 
 	template<typename T, typename ...Args>
-	std::shared_ptr<T>& Fill(std::shared_ptr<T>& v, Args&&...args) {
+	std::shared_ptr<T>& MakeTo(std::shared_ptr<T>& v, Args&&...args) {
 		v = std::make_shared<T>(std::forward<Args>(args)...);
 		return v;
 	}
@@ -362,5 +370,88 @@ namespace xx {
 		kapala::fixed_function<void()> func;
 		ScopeGuard(ScopeGuard const&) = delete;
 		ScopeGuard &operator=(ScopeGuard const&) = delete;
+	};
+
+
+
+	// guid
+
+	struct Guid {
+		union {
+			struct {
+				uint64_t part1;
+				uint64_t part2;
+			};
+			struct {	// for ToString
+				uint32_t  data1;
+				unsigned short data2;
+				unsigned short data3;
+				unsigned char  data4[8];
+			};
+		};
+
+		explicit Guid(bool const& fill = true) noexcept {
+			if (fill) {
+				Fill();
+			}
+			else {
+				part1 = 0;
+				part2 = 0;
+			}
+		}
+		Guid(Guid const& o) noexcept = default;
+		Guid& operator=(Guid const& o) noexcept = default;
+
+		bool operator==(Guid const& o) const noexcept {
+			return part1 == o.part1 && part2 == o.part2;
+		}
+		bool operator!=(Guid const& o) const noexcept {
+			return part1 != o.part1 || part2 != o.part2;
+		}
+
+		void Fill() noexcept {
+#ifdef _WIN32
+			CoCreateGuid((GUID*)this);
+#else
+			uuid_generate((unsigned char*)this);
+#endif
+		}
+		inline void Fill(char const* const& buf) noexcept {
+			memcpy(this, buf, 16);
+		}
+
+		bool IsZero() noexcept {
+			return part1 == 0 && part2 == 0;
+		}
+	};
+
+	template<>
+	struct SFuncs<Guid, void> {
+		static inline void WriteTo(std::string& s, Guid const& in) noexcept {
+			auto offset = s.size();
+			s.resize(offset + 48);
+			snprintf(s.data() + offset, 48,
+				"%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X",
+				in.data1, in.data2, in.data3,
+				in.data4[0], in.data4[1],
+				in.data4[2], in.data4[3],
+				in.data4[4], in.data4[5],
+				in.data4[6], in.data4[7]
+			);
+		}
+	};
+}
+
+namespace std {
+	template<> 
+	struct hash<xx::Guid> {
+		std::size_t operator()(xx::Guid const& in) const noexcept {
+			if constexpr (sizeof(std::size_t) == 8) {
+				return in.part1 ^ in.part2;
+			}
+			else {
+				return ((uint32_t*)&in)[0] ^ ((uint32_t*)&in)[1] ^ ((uint32_t*)&in)[2] ^ ((uint32_t*)&in)[3];
+			}
+		}
 	};
 }

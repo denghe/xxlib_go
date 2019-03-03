@@ -1689,7 +1689,7 @@ xx::UvUdpBase::UvUdpBase(UvLoop& loop)
 {
 }
 
-typedef int(*KcpOutputCB)(const char *buf, int len, ikcpcb *kcp);
+typedef int(*KcpOutputCB)(const char *buf, int len, ikcpcb *kcp, void *user);
 
 
 
@@ -1708,7 +1708,7 @@ xx::UvUdpPeer::UvUdpPeer(UvUdpListener& listener
 
 	ipBuf.fill(0);
 
-	ptr = ikcp_create(&g, this, mempool);
+	ptr = ikcp_create(g, this);
 	if (!ptr) throw - 2;
 	xx::ScopeGuard sg_ptr([&]() noexcept { ikcp_release((ikcpcb*)ptr); ptr = nullptr; });
 
@@ -1865,7 +1865,7 @@ int xx::UvUdpClient::Connect(xx::Guid const& g
 	if ((r = uv_udp_recv_start((uv_udp_t*)ptr, AllocCB, (uv_udp_recv_cb)OnRecvCBImpl))) return r;
 
 	this->guid = g;
-	kcpPtr = ikcp_create(&g, this, mempool);
+	kcpPtr = ikcp_create(g, this);
 	if (!kcpPtr) return -4;
 	xx::ScopeGuard sg_kcpPtr([&]() noexcept { ikcp_release((ikcpcb*)kcpPtr); kcpPtr = nullptr; });
 

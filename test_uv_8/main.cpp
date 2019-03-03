@@ -3,7 +3,7 @@
 struct EchoPeer : xx::UvTcpBasePeer {
 	xx::UvTimer_s timeouter;
 	inline int Unpack(uint8_t* const& buf, uint32_t const& len) noexcept override {
-		std::cout << timeouter->Restart();	// 重置超时时间
+		timeouter->Restart();	// 重置超时时间
 		return Send(buf, len);
 	}
 };

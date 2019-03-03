@@ -179,15 +179,14 @@ struct IKCPCB
 	struct IQUEUEHEAD rcv_buf;
 	uint32_t *acklist;
 	uint32_t ackcount;
-	size_t ackblock;
+	uint32_t ackblock;
 	void *user;
 	char *buffer;
 	int fastresend;
 	int nocwnd, stream;
 	int logmask;
-	int (*output)(const char *buf, int len, struct IKCPCB *kcp);
-	void (*writelog)(const char *log, struct IKCPCB *kcp);
-	void* user2;	// for allocator
+	int (*output)(const char *buf, int len, struct IKCPCB *kcp, void *user);
+	void (*writelog)(const char *log, struct IKCPCB *kcp, void *user);
 };
 
 
@@ -214,14 +213,14 @@ typedef struct IKCPCB ikcpcb;
 // create a new kcp control object, 'conv' must equal in two endpoint
 // from the same connection. 'user' will be passed to the output callback
 // output callback can be setup like this: 'kcp->output = my_udp_output'
-ikcpcb* ikcp_create(xx::Guid const* conv, void *user, void* user2);
+ikcpcb* ikcp_create(xx::Guid const& conv, void *user);
 
 // release kcp control object
 void ikcp_release(ikcpcb *kcp);
 
 // set output callback, which will be invoked by kcp
 void ikcp_setoutput(ikcpcb *kcp, int (*output)(const char *buf, int len, 
-	ikcpcb *kcp));
+	ikcpcb *kcp, void *user));
 
 // user/upper level recv: returns size, returns below zero for EAGAIN
 int ikcp_recv(ikcpcb *kcp, char *buffer, int len);
@@ -272,7 +271,7 @@ int ikcp_nodelay(ikcpcb *kcp, int nodelay, int interval, int resend, int nc);
 void ikcp_log(ikcpcb *kcp, int mask, const char *fmt, ...);
 
 // setup allocator
-void ikcp_allocator(void* (*new_malloc)(void*, size_t), void (*new_free)(void*, void*));
+void ikcp_allocator(void* (*new_malloc)(size_t), void (*new_free)(void*));
 
 
 #endif

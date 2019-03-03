@@ -30,6 +30,15 @@
     <ClInclude Include="xx_uv.h">
       <Filter>xx</Filter>
     </ClInclude>
+    <ClInclude Include="ikcp.h">
+      <Filter>xx</Filter>
+    </ClInclude>
+    <ClInclude Include="fixed_function.hpp">
+      <Filter>xx</Filter>
+    </ClInclude>
+    <ClInclude Include="xx_random.h">
+      <Filter>xx</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="xx">
