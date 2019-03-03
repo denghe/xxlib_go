@@ -335,7 +335,7 @@ namespace xx {
 		return std::make_shared<std::string>(std::forward<Args>(args)...);
 	}
 
-	template<typename T, typename U>
+	template<typename T>
 	std::weak_ptr<T> Weak(std::shared_ptr<T>& v) {
 		return std::weak_ptr<T>(v);
 	}

@@ -114,6 +114,7 @@ namespace xx {
 
 	struct UvTimer {
 		uv_timer_t* uvTimer = nullptr;
+		uint64_t timeoutMS = 0;
 		std::function<void()> OnFire;
 
 		UvTimer() = default;
@@ -135,12 +136,17 @@ namespace xx {
 		}
 		inline int Start(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS) noexcept {
 			if (!uvTimer) return -1;
+			this->timeoutMS = timeoutMS;
 			return uv_timer_start(uvTimer, [](uv_timer_t* t) {
 				auto self = UvGetSelf<UvTimer>(t);
 				if (self->OnFire) {
 					self->OnFire();
 				}
 			}, timeoutMS, repeatIntervalMS);
+		}
+		inline int Restart(uint64_t const& timeoutMS = 0) noexcept {
+			if (!uvTimer) return -1;
+			return uv_timer_start(uvTimer, uvTimer->timer_cb, timeoutMS ? timeoutMS : this->timeoutMS, 0);
 		}
 		inline int Stop() noexcept {
 			if (!uvTimer) return -1;
@@ -588,7 +594,7 @@ namespace xx {
 						self->OnTimeout();
 					}
 				}
-			});
+				});
 			return timeouter ? 0 : -1;
 		}
 
