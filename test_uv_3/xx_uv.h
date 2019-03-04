@@ -66,20 +66,11 @@ namespace xx {
 		inline int Run(uv_run_mode const& mode = UV_RUN_DEFAULT) noexcept {
 			return uv_run(&uvLoop, mode);
 		}
-
-		// 下列 Create 系列主用于创建初始步骤略微复杂的对象. 通常直接 std::make_shared
-
-		// make + init
-		UvAsync_s CreateAsync() noexcept;
-
-		// make + addr + bind + listen
-		template<typename ListenerType = UvTcpListener<>>
-		std::shared_ptr<ListenerType> CreateTcpListener(std::string const& ip, int const& port, int const& backlog = 128) noexcept;
-
-		// make + init + start
-		template<typename TimerType = UvTimer, typename ENABLED = std::enable_if_t<std::is_base_of_v<UvTimer, TimerType>>>
-		std::shared_ptr<TimerType> CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire = nullptr) noexcept;
 	};
+
+	// make + init + start
+	template<typename TimerType = UvTimer, typename ENABLED = std::enable_if_t<std::is_base_of_v<UvTimer, TimerType>>>
+	std::shared_ptr<TimerType> CreateUvTimer(UvLoop& loop, uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire = nullptr) noexcept;
 
 	struct UvAsync {
 		std::mutex mtx;
@@ -215,7 +206,7 @@ namespace xx {
 
 		inline int SetTimeout(uint64_t const& timeoutMS = 0) {
 			if (!timeoutMS) return 0;
-			timeouter = loop.CreateTimer<UvTimer>(timeoutMS, 0, [self_w = std::weak_ptr<UvResolver>(shared_from_this())]{
+			timeouter = CreateUvTimer<UvTimer>(loop, timeoutMS, 0, [self_w = std::weak_ptr<UvResolver>(shared_from_this())]{
 				if (auto self = self_w.lock()) {
 					self->Cleanup();
 					if (self->OnTimeout) {
@@ -470,7 +461,7 @@ namespace xx {
 			std::pair<std::function<int(Object_s&& msg)>, UvTimer_s> v;
 			++serial;
 			if (timeoutMS) {
-				v.second = container_of(uvTcp->loop, UvLoop, uvLoop)->CreateTimer(timeoutMS, 0, [this, serial = this->serial]() {
+				v.second = CreateUvTimer(*container_of(uvTcp->loop, UvLoop, uvLoop), timeoutMS, 0, [this, serial = this->serial]() {
 					TimeoutCallback(serial);
 				});
 				if (!v.second) return -1;
@@ -511,10 +502,10 @@ namespace xx {
 		};
 	};
 
-	template<typename ListenerType>
-	inline std::shared_ptr<ListenerType> UvLoop::CreateTcpListener(std::string const& ip, int const& port, int const& backlog) noexcept {
+	template<typename ListenerType = UvTcpListener<>>
+	inline std::shared_ptr<ListenerType> CreateUvTcpListener(UvLoop& loop, std::string const& ip, int const& port, int const& backlog = 128) noexcept {
 		auto listener = std::make_shared<ListenerType>();
-		if (listener->Init(&uvLoop)) return nullptr;
+		if (listener->Init(&loop.uvLoop)) return nullptr;
 
 		sockaddr_in6 addr;
 		if (ip.find(':') == std::string::npos) {								// ipv4
@@ -596,7 +587,7 @@ namespace xx {
 
 		inline int SetTimeout(uint64_t const& timeoutMS = 0) noexcept {
 			if (!timeoutMS) return 0;
-			timeouter = loop.CreateTimer<UvTimer>(timeoutMS, 0, [self_w = std::weak_ptr<UvTcpDialer>(shared_from_this())]{
+			timeouter = CreateUvTimer<UvTimer>(loop, timeoutMS, 0, [self_w = std::weak_ptr<UvTcpDialer>(shared_from_this())]{
 				if (auto self = self_w.lock()) {
 					self->Cleanup(false);
 					if (!self->peer && self->OnTimeout) {
@@ -680,16 +671,16 @@ namespace xx {
 		}
 	}
 
-	inline UvAsync_s UvLoop::CreateAsync() noexcept {
+	inline UvAsync_s CreateUvAsync(UvLoop& loop) noexcept {
 		auto async = std::make_shared<UvAsync>();
-		if (async->Init(&uvLoop)) return nullptr;
+		if (async->Init(&loop.uvLoop)) return nullptr;
 		return async;
 	}
 
 	template<typename TimerType, typename ENABLED>
-	inline std::shared_ptr<TimerType> UvLoop::CreateTimer(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire) noexcept {
+	inline std::shared_ptr<TimerType> CreateUvTimer(UvLoop& loop, uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire) noexcept {
 		auto timer = std::make_shared<TimerType>();
-		if (timer->Init(&uvLoop)) return nullptr;
+		if (timer->Init(&loop.uvLoop)) return nullptr;
 		if (onFire) {
 			timer->OnFire = std::move(onFire);
 		}

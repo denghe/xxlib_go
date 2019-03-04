@@ -343,12 +343,22 @@ namespace xx {
 		return std::make_shared<std::string>(std::forward<Args>(args)...);
 	}
 
+	template<typename T, typename ...Args>
+	std::shared_ptr<T> TryMake(Args&&...args) {
+		try {
+			return std::make_shared<T>(std::forward<Args>(args)...);
+		}
+		catch (...) {
+			return std::shared_ptr<T>();
+		}
+	}
+
 	template<typename T>
 	std::weak_ptr<T> Weak(std::shared_ptr<T>& v) {
 		return std::weak_ptr<T>(v);
 	}
 
-	// unsafe. need more test
+	// unsafe
 	template<typename T, typename U>
 	std::shared_ptr<T>& As(std::shared_ptr<U>& v) {
 		return *(std::shared_ptr<T>*)&v;

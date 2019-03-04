@@ -13,10 +13,10 @@ int main(int argc, char* argv[]) {
 		return -1;
 	}
 	xx::UvLoop loop;
-	auto listener = loop.CreateTcpListener<xx::UvTcpListener<EchoPeer>>("0.0.0.0", std::atoi(argv[1]));
+	auto listener = xx::CreateUvTcpListener<xx::UvTcpListener<EchoPeer>>(loop, "0.0.0.0", std::atoi(argv[1]));
 	listener->OnAccept = [&loop](std::shared_ptr<EchoPeer>&& peer) {
 		peer->OnDisconnect = [peer] {}; // hold memory
-		peer->timeouter = loop.CreateTimer(5000, 0, [peer_w = xx::Weak(peer)]{	// 5 秒超时
+		peer->timeouter = CreateUvTimer(loop, 5000, 0, [peer_w = xx::Weak(peer)]{	// 5 秒超时
 			peer_w.lock()->Dispose();
 		});
 	};

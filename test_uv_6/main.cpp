@@ -97,13 +97,13 @@ struct Listener : xx::UvTcpListener<Peer> {
 
 inline Loop::Loop()
 	: UvLoop() {
-	listener = CreateTcpListener<Listener>("0.0.0.0", 10000);
+	listener = xx::CreateUvTcpListener<Listener>(*this, "0.0.0.0", 10000);
 	if (listener) {
 		listener->loop = this;
 		std::cout << "router started...";
 	}
 
-	timer = CreateTimer<>(100, 500, [this] {
+	timer = xx::CreateUvTimer(*this, 100, 500, [this] {
 		//if (dialers.empty()) {
 		//	listener.reset();
 		//	timer.reset();

@@ -5,7 +5,7 @@ int main(int argc, char* argv[]) {
 		return -1;
 	}
 	xx::UvLoop loop;
-	auto listener = loop.CreateTcpListener("0.0.0.0", std::atoi(argv[1]));
+	auto listener = CreateUvTcpListener(loop, "0.0.0.0", std::atoi(argv[1]));
 	listener->OnAccept = [](xx::UvTcpPeer_s&& peer) {
 		peer->OnReceiveRequest = [peer](int const& serial, xx::Object_s&& msg)->int {
 			return peer->SendResponse(serial, msg);
