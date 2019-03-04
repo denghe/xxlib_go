@@ -24,7 +24,42 @@ namespace xx {
 		}
 	};
 
-	struct UvUdpBasePeer {
+	struct UvUdpPeer : UvUdp {
+		UvLoop& loop;
+		std::function<void()> OnConnect;
+
+		inline virtual int Init(UvLoop& loop) noexcept override {
+			return this->UvUdp::Init(loop);
+		}
+
+		UvUdpPeer(UvLoop& loop) noexcept : loop(loop) {}
+		UvUdpPeer(UvUdpPeer const&) = delete;
+		UvUdpPeer& operator=(UvUdpPeer const&) = delete;
+
+		void Dial(std::string const& ip, int const& port) {
+			sockaddr_in6 addr;
+			if (ip.find(':') == std::string::npos) {								// ipv4
+				if (uv_ip4_addr(ip.c_str(), port, (sockaddr_in*)&addr)) return;
+			}
+			else {																	// ipv6
+				if (uv_ip6_addr(ip.c_str(), port, &addr)) return;
+			}
+			if (uv_udp_bind(uvUdp, (sockaddr*)&addr, UV_UDP_REUSEADDR)) return;
+
+			if (uv_udp_recv_start(uvUdp, UvAllocCB, [](uv_udp_t* handle, ssize_t nread, const uv_buf_t* buf, const struct sockaddr* addr, unsigned flags) {
+				if (nread > 0) {
+					UvGetSelf<UvUdpPeer>(handle)->Unpack((uint8_t*)buf->base, (uint32_t)nread, addr);
+				}
+				if (buf) ::free(buf->base);
+			})) return;
+		}
+
+		virtual void Unpack(uint8_t* const& recvBuf, uint32_t const& recvLen, sockaddr const* const& addr) noexcept = 0;
+	};
+
+
+
+	struct UvUdpKcpPeer {
 		ikcpcb* kcp = nullptr;					// need Init
 		uint32_t nextUpdateTicks = 0;
 		sockaddr_in6 addr;						// set by Listener recv every time
@@ -62,9 +97,9 @@ namespace xx {
 
 		inline virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen) noexcept { return 0; };
 
-		UvUdpBasePeer() = default;
-		UvUdpBasePeer(UvUdpBasePeer const&) = delete;
-		UvUdpBasePeer& operator=(UvUdpBasePeer const&) = delete;
+		UvUdpKcpPeer() = default;
+		UvUdpKcpPeer(UvUdpKcpPeer const&) = delete;
+		UvUdpKcpPeer& operator=(UvUdpKcpPeer const&) = delete;
 
 		inline int Init(UvUdp* owner, xx::Guid const& g) {
 			this->owner = owner;
@@ -76,7 +111,7 @@ namespace xx {
 
 			(kcp)->rx_minrto = 100;
 			ikcp_setoutput(kcp, [](const char *inBuf, int len, ikcpcb *kcp, void *user)->int {
-				auto peer = (UvUdpBasePeer*)user;
+				auto peer = (UvUdpKcpPeer*)user;
 				struct uv_udp_send_t_ex : uv_udp_send_t {
 					uv_buf_t buf;
 				};
