@@ -84,7 +84,7 @@ namespace xx {
 
 		template<typename T, typename ENABLED = std::enable_if_t<std::is_base_of_v<Object, T>>>
 		inline static void Register(uint16_t const& typeId) noexcept {
-			creators[typeId] = []()->std::shared_ptr<Object> { return std::make_shared<T>(); };
+			creators[typeId] = []()->std::shared_ptr<Object> { return xx::TryMake<T>(); };
 		}
 
 		inline static std::shared_ptr<Object> CreateByTypeId(uint16_t typeId) {
@@ -190,17 +190,18 @@ namespace xx {
 			if (auto r = Read(ptrOffset)) return r;
 			if (ptrOffset == offs) {
 				if constexpr (std::is_same_v<std::string, T>) {
-					v = std::make_shared<std::string>();
+					v = xx::TryMake<std::string>();
 					strIdxs[ptrOffset] = v;
 					if (auto r = Read(*v)) return r;
 				}
 				else {
 					std::shared_ptr<Object> o;
 					if (typeId == 2) {
-						o = std::make_shared<BBuffer>();
+						o = xx::TryMake<BBuffer>();
 					}
 					else {
 						o = CreateByTypeId(typeId);
+						if (!o) return -3;
 					}
 					v = std::dynamic_pointer_cast<T>(o);
 					if (!v) return -4;

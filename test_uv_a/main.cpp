@@ -190,7 +190,7 @@ namespace xx {
 		}
 
 		inline virtual std::shared_ptr<PeerType> CreatePeer() noexcept {
-			return OnCreatePeer ? OnCreatePeer() : std::make_shared<PeerType>();
+			return OnCreatePeer ? OnCreatePeer() : xx::TryMake<PeerType>();
 		}
 		inline virtual void Accept(std::shared_ptr<PeerType>&& peer) noexcept {
 			if (OnAccept) {
@@ -205,7 +205,7 @@ namespace xx {
 			auto iter = peers.find(g);		// 去字典中找. 没有就新建.
 			std::shared_ptr<PeerType> p = iter == peers.end() ? nullptr : iter->second.lock();
 			if (!p) {
-				p = OnCreatePeer ? OnCreatePeer() : std::make_shared<PeerType>();
+				p = OnCreatePeer ? OnCreatePeer() : xx::TryMake<PeerType>();
 				if (!p || p->Init(this, g)) return;
 				peers[g] = p;
 			}
@@ -222,7 +222,7 @@ namespace xx {
 
 	template<typename PeerType>
 	std::shared_ptr<UvUdpListener<PeerType>> CreateUdpListener(UvLoop& loop, std::string const& ip, int const& port) {
-		auto listener = std::make_shared<ListenerType>();
+		auto listener = xx::TryMake<ListenerType>();
 		if (listener->Init(&loop.uvLoop)) return nullptr;
 
 		sockaddr_in6 addr;

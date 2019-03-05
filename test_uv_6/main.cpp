@@ -121,7 +121,7 @@ inline Loop::Loop()
 
 inline int Loop::RegisterDialer(int const& addr, std::string&& ip, int const& port) noexcept {
 	if (dialers.find(addr) == dialers.end()) return -1;
-	auto dialer = std::make_shared<Dialer>(*this);
+	auto dialer = xx::TryMake<Dialer>(*this);
 	if (!dialer) return -2;
 	dialer->addr = addr;
 	dialer->ip = std::move(ip);
@@ -249,7 +249,7 @@ int main() {
 //	PKG::AllTypesRegister();
 //	std::cout << PKG::PkgGenMd5::value << std::endl;
 //
-//	auto o = std::make_shared<PKG::Foo>();
+//	auto o = xx::TryMake<PKG::Foo>();
 //	o->parent = o;
 //	o->childs = o->childs->Create();
 //	o->childs->Add(o);

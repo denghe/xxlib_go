@@ -3,21 +3,36 @@
 #include "xx_bbuffer.h"
 #include "ikcp.h"
 
-// todo: 干掉所有 CreateXxxxx 和 Init. 所有创建行为都应该使用 xx::TryMake
-
 // 重要：
 // std::function 的捕获列表通常不可以随意增加引用以导致无法析构, 尽量使用 weak_ptr. 
 // 当前唯有 UvTcpPeer OnDisconnect, OnReceivePush, OnReceiveRequest 可以使用 shared_ptr 捕获, 会在 Dispose 时自动清除
 
 namespace xx {
-	struct UvResolver;
-	using UvResolver_s = std::shared_ptr<UvResolver>;
-	using UvResolver_w = std::weak_ptr<UvResolver>;
-	struct UvTcpPeer;
-	using UvTcpPeer_s = std::shared_ptr<UvTcpPeer>;
-	using UvTcpPeer_w = std::weak_ptr<UvTcpPeer>;
-	template<typename PeerType = UvTcpPeer>
-	struct UvTcpListener;
+	struct UvLoop {
+		uv_loop_t uvLoop;
+		UvLoop() {
+			if (int r = uv_loop_init(&uvLoop)) throw r;
+		}
+		UvLoop(UvLoop const&) = delete;
+		UvLoop& operator=(UvLoop const&) = delete;
+
+		inline int Run(uv_run_mode const& mode = UV_RUN_DEFAULT) noexcept {
+			return uv_run(&uvLoop, mode);
+		}
+	};
+
+	// 所有 Uv 系基类
+	struct UvItem : std::enable_shared_from_this<UvItem> {
+		UvLoop& loop;
+		template<typename LoopType>
+		LoopType& LoopAs() const {
+			return *(LoopType*)&loop;
+		}
+		UvItem(UvLoop& loop) : loop(loop) {}
+		virtual ~UvItem() {}
+	};
+
+	// utils ( 考虑移进 UvLoop )
 
 	template<typename T>
 	T* UvAlloc(void* const& ud) noexcept {
@@ -49,29 +64,6 @@ namespace xx {
 		buf->len = decltype(uv_buf_t::len)(suggested_size);
 	}
 
-	struct UvLoop {
-		uv_loop_t uvLoop;
-		UvLoop() {
-			if (int r = uv_loop_init(&uvLoop)) throw r;
-		}
-		UvLoop(UvLoop const&) = delete;
-		UvLoop& operator=(UvLoop const&) = delete;
-
-		inline int Run(uv_run_mode const& mode = UV_RUN_DEFAULT) noexcept {
-			return uv_run(&uvLoop, mode);
-		}
-	};
-
-	// 所有 Uv 系基类
-	struct UvItem : std::enable_shared_from_this<UvItem> {
-		UvLoop& loop;
-		template<typename LoopType>
-		LoopType& LoopAs() const {
-			return *(LoopType*)&loop;
-		}
-		UvItem(UvLoop& loop) : loop(loop) {}
-		virtual ~UvItem() {}
-	};
 
 	struct UvAsync : UvItem {
 		std::mutex mtx;
@@ -167,9 +159,11 @@ namespace xx {
 	using UvTimer_w = std::weak_ptr<UvTimer>;
 
 	struct UvResolver;
+	using UvResolver_s = std::shared_ptr<UvResolver>;
+	using UvResolver_w = std::weak_ptr<UvResolver>;
 	struct uv_getaddrinfo_t_ex {
 		uv_getaddrinfo_t req;
-		std::weak_ptr<UvResolver> resolver_w;
+		UvResolver_w resolver_w;
 	};
 
 	struct UvResolver : UvItem {
@@ -407,7 +401,7 @@ namespace xx {
 			this->UvTcpBasePeer::Dispose(callback);
 		}
 
-		virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen) noexcept {
+		virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen) noexcept override {
 			recvBB.buf = (uint8_t*)recvBuf;
 			xx::ScopeGuard sgBuf([&] {recvBB.buf = nullptr; });	// restore buf at func exit
 			recvBB.len = recvLen;
@@ -465,7 +459,7 @@ namespace xx {
 			std::pair<std::function<int(Object_s&& msg)>, UvTimer_s> v;
 			++serial;
 			if (timeoutMS) {
-				v.second = xx::TryMake<UvTimer>(*container_of(uvTcp->loop, UvLoop, uvLoop), timeoutMS, 0, [this, serial = this->serial]() {
+				v.second = xx::TryMake<UvTimer>(loop, timeoutMS, 0, [this, serial = this->serial]() {
 					TimeoutCallback(serial);
 				});
 				if (!v.second) return -1;
@@ -486,8 +480,10 @@ namespace xx {
 			callbacks.erase(iter);
 		}
 	};
+	using UvTcpPeer_s = std::shared_ptr<UvTcpPeer>;
+	using UvTcpPeer_w = std::weak_ptr<UvTcpPeer>;
 
-	template<typename PeerType>
+	template<typename PeerType = UvTcpPeer>
 	struct UvTcpListener : UvTcp {
 		std::function<std::shared_ptr<PeerType>()> OnCreatePeer;
 		std::function<void(std::shared_ptr<PeerType>&& peer)> OnAccept;
@@ -667,4 +663,96 @@ namespace xx {
 			client->reqs.erase(serial);
 		}
 	}
+
+
+	struct uv_udp_send_t_ex : uv_udp_send_t {
+		uv_buf_t buf;
+	};
+
+	struct UvUdpBasePeer : UvItem {
+		uv_udp_t* uvUdp = nullptr;
+		sockaddr_in6 addr;
+		std::array<char, 65536> recvBuf;
+		std::function<void()> OnDispose;
+
+		UvUdpBasePeer(UvLoop& loop, std::string const& ip, int const& port, bool isListener)
+			: UvItem(loop) {
+			if (ip.size()) {
+				if (ip.find(':') == std::string::npos) {
+					if (int r = uv_ip4_addr(ip.c_str(), port, (sockaddr_in*)&addr)) throw r;
+				}
+				else {
+					if (int r = uv_ip6_addr(ip.c_str(), port, &addr)) throw r;
+				}
+			}
+			uvUdp = UvAlloc<uv_udp_t>(this);
+			if (!uvUdp) throw - 2;
+			if (int r = uv_udp_init(&loop.uvLoop, uvUdp)) {
+				uvUdp = nullptr;
+				throw r;
+			}
+			xx::ScopeGuard sgUdp([this] { UvHandleCloseAndFree(uvUdp); });
+			if (isListener) {
+				if (int r = uv_udp_bind(uvUdp, (sockaddr*)&addr, UV_UDP_REUSEADDR)) throw r;
+			}
+			if (int r = uv_udp_recv_start(uvUdp, UvAllocCB, [](uv_udp_t* handle, ssize_t nread, const uv_buf_t* buf, const struct sockaddr* addr, unsigned flags) {
+				if (nread > 0) {
+					nread = UvGetSelf<UvUdpBasePeer>(handle)->HandlePack((uint8_t*)buf->base, (uint32_t)nread, addr);
+				}
+				if (buf) ::free(buf->base);
+				if (nread < 0) {
+					UvGetSelf<UvUdpBasePeer>(handle)->Dispose(true);
+				}
+			})) throw r;
+			sgUdp.Cancel();
+		}
+
+		virtual ~UvUdpBasePeer() {
+			UvHandleCloseAndFree(uvUdp);
+		}
+
+		inline bool Disposed() noexcept {
+			return uvUdp == nullptr;
+		}
+
+		inline virtual void Dispose(bool callback = false) {
+			if (!uvUdp) return;
+			UvHandleCloseAndFree(uvUdp);
+			if (callback && OnDispose) {
+				OnDispose();
+				OnDispose = nullptr;
+			}
+		}
+
+		virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen, sockaddr const* const& addr) noexcept {
+			for (uint32_t i = 0; i < recvLen; i++) {
+				std::cout << (int)recvBuf[i] << " ";
+			}
+			return 0;
+		}
+
+		inline int Send(uv_udp_send_t_ex* const& req, sockaddr const* const& addr = nullptr) noexcept {
+			if (!uvUdp) return -1;
+			// todo: check send queue len ? protect?  uv_stream_get_write_queue_size((uv_stream_t*)uvTcp);
+			int r = uv_udp_send(req, uvUdp, &req->buf, 1, addr ? addr : (sockaddr*)&this->addr, [](uv_udp_send_t *req, int status) {
+				::free(req);
+			});
+			if (r) Dispose();
+			return r;
+		}
+
+		inline int Send(uint8_t const* const& buf, ssize_t const& dataLen, sockaddr const* const& addr = nullptr) noexcept {
+			if (!uvUdp) return -1;
+			auto req = (uv_udp_send_t_ex*)::malloc(sizeof(uv_udp_send_t_ex) + dataLen);
+			memcpy(req + 1, buf, dataLen);
+			req->buf.base = (char*)(req + 1);
+			req->buf.len = decltype(uv_buf_t::len)(dataLen);
+			return Send(req, addr);
+		}
+
+		inline int Send(char const* const& buf, ssize_t const& dataLen, sockaddr const* const& addr = nullptr) noexcept {
+			return Send((uint8_t*)buf, dataLen, addr);
+		}
+	};
+
 }

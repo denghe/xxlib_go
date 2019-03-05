@@ -333,6 +333,11 @@ namespace xx {
 	// make_shared, weak helpers
 
 	template<typename T, typename ...Args>
+	std::shared_ptr<T> Make(Args&&...args) {
+		return std::make_shared<T>(std::forward<Args>(args)...);
+	}
+
+	template<typename T, typename ...Args>
 	std::shared_ptr<T>& MakeTo(std::shared_ptr<T>& v, Args&&...args) {
 		v = std::make_shared<T>(std::forward<Args>(args)...);
 		return v;
@@ -341,6 +346,11 @@ namespace xx {
 	template<typename ...Args>
 	std::string_s MakeString(Args&&...args) {
 		return std::make_shared<std::string>(std::forward<Args>(args)...);
+	}
+
+	template<typename T>
+	std::weak_ptr<T> Weak(std::shared_ptr<T>& v) {
+		return std::weak_ptr<T>(v);
 	}
 
 	template<typename T, typename ...Args>
@@ -353,9 +363,10 @@ namespace xx {
 		}
 	}
 
-	template<typename T>
-	std::weak_ptr<T> Weak(std::shared_ptr<T>& v) {
-		return std::weak_ptr<T>(v);
+	template<typename T, typename ...Args>
+	std::shared_ptr<T>& TryMakeTo(std::shared_ptr<T>& v, Args&&...args) {
+		v = TryMake<T>(std::forward<Args>(args)...);
+		return v;
 	}
 
 	// unsafe

@@ -1,70 +1,107 @@
 ﻿#include "xx_uv.h"
 namespace xx {
-	struct uv_udp_send_t_ex : uv_udp_send_t {
-		uv_buf_t buf;
-	};
 
-	struct UvUdpBase : UvItem {
-		uv_udp_t* uvUdp = nullptr;
-		sockaddr_in6 addr;
-		std::array<char, 65536> recvBuf;
-		std::function<void()> OnDispose;
+	struct UvUdpPeer : UvUdpBasePeer {
+		BBuffer recvBB;			// for replace buf memory decode package
+		BBuffer sendBB;
+		std::function<int(Object_s&& msg)> OnReceivePush;
+		std::function<int(int const& serial, Object_s&& msg)> OnReceiveRequest;
+		std::unordered_map<int, std::pair<std::function<int(Object_s&& msg)>, UvTimer_s>> callbacks;
+		int serial = 0;
 
-		UvUdpBase(UvLoop& loop, std::string const& ip, int const& port, bool isListener) 
-			: UvItem(loop) {
-			if (ip.size()) {
-				if (ip.find(':') == std::string::npos) {
-					if (int r = uv_ip4_addr(ip.c_str(), port, (sockaddr_in*)&addr)) throw r;
-				}
-				else {
-					if (int r = uv_ip6_addr(ip.c_str(), port, &addr)) throw r;
-				}
-			}
-			uvUdp = UvAlloc<uv_udp_t>(this);
-			if (!uvUdp) throw -2;
-			if (int r = uv_udp_init(&loop.uvLoop, uvUdp)) {
-				uvUdp = nullptr;
-				throw r;
-			}
-			xx::ScopeGuard sgUdp([this] { UvHandleCloseAndFree(uvUdp); });
-			if (isListener) {
-				if (int r = uv_udp_bind(uvUdp, (sockaddr*)&addr, UV_UDP_REUSEADDR)) throw r;
-			}
-			if (int r = uv_udp_recv_start(uvUdp, UvAllocCB, [](uv_udp_t* handle, ssize_t nread, const uv_buf_t* buf, const struct sockaddr* addr, unsigned flags) {
-				if (nread > 0) {
-					nread = UvGetSelf<UvUdpBase>(handle)->Unpack((uint8_t*)buf->base, (uint32_t)nread, addr);
-				}
-				if (buf) ::free(buf->base);
-				if (nread < 0) {
-					UvGetSelf<UvUdpBase>(handle)->Dispose(true);
-				}
-			})) throw r;
-			sgUdp.Cancel();
-		}
+		using UvUdpBasePeer::UvUdpBasePeer;
+		UvUdpPeer(UvUdpPeer const&) = delete;
+		UvUdpPeer& operator=(UvUdpPeer const&) = delete;
 
-		virtual ~UvUdpBase() {
-			UvHandleCloseAndFree(uvUdp);
-		}
-
-		inline bool Disposed() noexcept {
-			return uvUdp == nullptr;
-		}
-
-		inline virtual void Dispose(bool callback = false) {
+		inline virtual void Dispose(bool callback = true) noexcept override {
 			if (!uvUdp) return;
-			UvHandleCloseAndFree(uvUdp);
-			if (callback && OnDispose) {
-				OnDispose();
-				OnDispose = nullptr;
+			for (decltype(auto) kv : callbacks) {
+				kv.second.first(nullptr);
+			}
+			callbacks.clear();
+			auto self = shared_from_this();		// hold memory
+			OnReceivePush = nullptr;
+			OnReceiveRequest = nullptr;
+			this->UvUdpBasePeer::Dispose(callback);
+		}
+
+		virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen, sockaddr const* const& addr) noexcept override {
+			recvBB.buf = (uint8_t*)recvBuf;
+			xx::ScopeGuard sgBuf([&] {recvBB.buf = nullptr; });	// restore buf at func exit
+			recvBB.len = recvLen;
+			recvBB.cap = recvLen;
+			recvBB.offset = 0;
+
+			int serial = 0;
+			if (int r = recvBB.Read(serial)) return r;
+			Object_s msg;
+			if (int r = recvBB.ReadRoot(msg)) return r;
+
+			if (serial == 0) {
+				return OnReceivePush ? OnReceivePush(std::move(msg)) : 0;
+			}
+			else if (serial < 0) {
+				return OnReceiveRequest ? OnReceiveRequest(-serial, std::move(msg)) : 0;
+			}
+			else {
+				auto iter = callbacks.find(serial);
+				if (iter == callbacks.end()) return 0;
+				int r = iter->second.first(std::move(msg));
+				callbacks.erase(iter);
+				return r;
 			}
 		}
 
-		virtual int Unpack(uint8_t* const& recvBuf, uint32_t const& recvLen, sockaddr const* const& addr) noexcept {
-			// todo: print addr
-			for (uint32_t i = 0; i < recvLen; i++) {
-				std::cout << (int)recvBuf[i] << " ";
+		// serial == 0: push    > 0: response    < 0: request
+		inline int SendPackage(Object_s const& data, int32_t const& serial = 0, int const& addr = 0) {
+			if (Disposed()) return -1;
+			sendBB.Reserve(sizeof(uv_write_t_ex) + 4);				// skip uv_write_t_ex + header space
+			sendBB.len = sizeof(uv_write_t_ex) + 4;
+			if (addr) sendBB.WriteFixed(addr);
+			sendBB.Write(serial);
+			sendBB.WriteRoot(data);
+
+			auto buf = sendBB.buf;									// cut buf memory for send
+			auto len = sendBB.len - sizeof(uv_write_t_ex) - 4;
+			sendBB.buf = nullptr;
+			sendBB.len = 0;
+			sendBB.cap = 0;
+
+			return SendReqPack(buf, (uint32_t)len);
+		}
+
+		inline int SendPush(Object_s const& data, int const& addr = 0) {
+			return SendPackage(data);
+		}
+
+		inline int SendResponse(int32_t const& serial, Object_s const& data, int const& addr = 0) {
+			return SendPackage(data, serial, addr);
+		}
+
+		inline int SendRequest(Object_s const& data, int const& addr, std::function<int(Object_s&& msg)>&& cb, uint64_t const& timeoutMS = 0) {
+			if (Disposed()) return -1;
+			std::pair<std::function<int(Object_s&& msg)>, UvTimer_s> v;
+			++serial;
+			if (timeoutMS) {
+				v.second = xx::TryMake<UvTimer>(loop, timeoutMS, 0, [this, serial = this->serial]() {
+					TimeoutCallback(serial);
+				});
+				if (!v.second) return -1;
 			}
+			if (int r = SendPackage(data, -serial, addr)) return r;
+			v.first = std::move(cb);
+			callbacks[serial] = std::move(v);
 			return 0;
+		}
+		inline int SendRequest(Object_s const& msg, std::function<int(Object_s&& msg)>&& cb, uint64_t const& timeoutMS = 0) {
+			return SendRequest(msg, 0, std::move(cb), timeoutMS);
+		}
+
+		inline void TimeoutCallback(int const& serial) {
+			auto iter = callbacks.find(serial);
+			if (iter == callbacks.end()) return;
+			iter->second.first(nullptr);
+			callbacks.erase(iter);
 		}
 
 		// reqbuf = uv_udp_send_t_ex space + len space + data
@@ -81,43 +118,19 @@ namespace xx {
 			return Send(req, addr);
 		}
 
-		inline int Send(uv_udp_send_t_ex* const& req, sockaddr const* const& addr = nullptr) noexcept {
-			if (!uvUdp) return -1;
-			// todo: check send queue len ? protect?  uv_stream_get_write_queue_size((uv_stream_t*)uvTcp);
-			int r = uv_udp_send(req, uvUdp, &req->buf, 1, addr ? addr : (sockaddr*)&this->addr, [](uv_udp_send_t *req, int status) {
-				::free(req);
-			});
-			if (r) Dispose();
-			return r;
-		}
-
-		inline int Send(uint8_t const* const& buf, ssize_t const& dataLen, sockaddr const* const& addr = nullptr) noexcept {
-			if (!uvUdp) return -1;
-			auto req = (uv_udp_send_t_ex*)::malloc(sizeof(uv_udp_send_t_ex) + dataLen);
-			memcpy(req + 1, buf, dataLen);
-			req->buf.base = (char*)(req + 1);
-			req->buf.len = decltype(uv_buf_t::len)(dataLen);
-			return Send(req, addr);
-		}
-		inline int Send(char const* const& buf, ssize_t const& dataLen, sockaddr const* const& addr = nullptr) noexcept {
-			return Send((uint8_t*)buf, dataLen, addr);
-		}
+		// todo
 	};
-
-	std::shared_ptr<UvUdpBase> CreateUvUdpBase(xx::UvLoop& loop, std::string const& ip, int const& port, bool isListener) {
-		return xx::TryMake<UvUdpBase>(loop, ip, port, isListener);
-	}
 }
 
 int main(int argc, char* argv[]) {
 	xx::UvLoop loop;
-	auto receiver = xx::TryMake<xx::UvUdpBase>(loop, "0.0.0.0", 12345, true);
+	auto receiver = xx::TryMake<xx::UvUdpBasePeer>(loop, "0.0.0.0", 12345, true);
 	assert(receiver);
 
 	auto timer = xx::TryMake<xx::UvTimer>(loop, 100, 0);
 	assert(timer);
 	timer->OnFire = [&loop, timer] {
-		auto sender = xx::TryMake<xx::UvUdpBase>(loop, "127.0.0.1", 12345, false);
+		auto sender = xx::TryMake<xx::UvUdpBasePeer>(loop, "127.0.0.1", 12345, false);
 		assert(sender);
 		sender->Send("1234", 4);
 		timer->OnFire = nullptr;

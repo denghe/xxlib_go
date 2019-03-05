@@ -24,8 +24,6 @@ struct MyDialer : xx::UvTcpDialer<xx::UvTcpPeer> {
 		}, 1000);
 	}
 };
-using MyDialer_s = std::shared_ptr<MyDialer>;
-using MyDialer_w = std::weak_ptr<MyDialer>;
 
 void RunServer() {
 	xx::UvLoop loop;
@@ -50,10 +48,11 @@ int main() {
 	std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
 	xx::UvLoop loop;
-	auto client = std::make_shared<MyDialer>(loop);
+	auto client = xx::TryMake<MyDialer>(loop);
 	assert(client);
-	client->OnConnect = [client_w = MyDialer_w(client)]{
-		auto msg = std::make_shared<xx::BBuffer>();
+	client->OnConnect = [client_w = xx::Weak(client)]{
+		auto msg = xx::TryMake<xx::BBuffer>();
+		assert(msg);
 		msg->Write(1u, 2u, 3u, 4u, 5u);
 		client_w.lock()->peer->SendRequest(msg, [client_w] (xx::Object_s&&msg) {
 			return client_w.lock()->HandleMsg(std::move(msg));

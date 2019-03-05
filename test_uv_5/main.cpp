@@ -105,7 +105,7 @@ namespace xx {
 	//	RouterListener& operator=(RouterListener const&) = delete;
 
 	//	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
-	//		return std::make_shared<RouterPeer>();
+	//		return xx::TryMake<RouterPeer>();
 	//	}
 	//	inline virtual void Accept(std::shared_ptr<UvTcpBasePeer>&& peer_) noexcept override {
 	//		routerPeer = std::move(xx::As<RouterPeer>(peer_));
@@ -129,7 +129,7 @@ namespace xx {
 	//	std::unordered_map<int, VDialer_s> dialers;
 	//	std::unordered_map<int, VPeer_s> peers;
 	//	inline virtual std::shared_ptr<UvTcpBasePeer> CreatePeer() noexcept override {
-	//		auto peer = std::make_shared<RouterPeer>();
+	//		auto peer = xx::TryMake<RouterPeer>();
 	//		peer->peers = &peers;
 	//		return peer;
 	//	}
@@ -281,7 +281,7 @@ int main() {
 //	PKG::AllTypesRegister();
 //	std::cout << PKG::PkgGenMd5::value << std::endl;
 //
-//	auto o = std::make_shared<PKG::Foo>();
+//	auto o = xx::TryMake<PKG::Foo>();
 //	o->parent = o;
 //	o->childs = o->childs->Create();
 //	o->childs->Add(o);
