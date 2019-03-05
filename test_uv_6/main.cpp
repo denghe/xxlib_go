@@ -32,7 +32,7 @@ struct Peer : xx::UvTcpBasePeer {
 	std::unordered_map<int, Peer_s>* peers = nullptr;	// for find target peer
 	int addr = 0;
 
-	Peer() = default;
+	using xx::UvTcpBasePeer::UvTcpBasePeer;
 	Peer(Peer const&) = delete;
 	Peer& operator=(Peer const&) = delete;
 
@@ -81,9 +81,10 @@ struct Dialer : xx::UvTcpDialer<Peer> {
 };
 
 struct Listener : xx::UvTcpListener<Peer> {
+	using BaseType = xx::UvTcpListener<Peer>;
 	Loop* loop = nullptr;
 
-	Listener() = default;
+	using BaseType::BaseType;
 	Listener(Listener const&) = delete;
 	Listener& operator=(Listener const&) = delete;
 
@@ -97,13 +98,13 @@ struct Listener : xx::UvTcpListener<Peer> {
 
 inline Loop::Loop()
 	: UvLoop() {
-	listener = xx::CreateUvTcpListener<Listener>(*this, "0.0.0.0", 10000);
+	listener = xx::TryMake<Listener>(*this, "0.0.0.0", 10000);
 	if (listener) {
 		listener->loop = this;
 		std::cout << "router started...";
 	}
 
-	timer = xx::CreateUvTimer(*this, 100, 500, [this] {
+	timer = xx::TryMake<xx::UvTimer>(*this, 100, 500, [this] {
 		//if (dialers.empty()) {
 		//	listener.reset();
 		//	timer.reset();
@@ -115,6 +116,7 @@ inline Loop::Loop()
 			}
 		}
 	});
+	if (!timer) throw - 1;
 }
 
 inline int Loop::RegisterDialer(int const& addr, std::string&& ip, int const& port) noexcept {

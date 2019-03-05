@@ -30,7 +30,7 @@ using MyDialer_w = std::weak_ptr<MyDialer>;
 void RunServer() {
 	xx::UvLoop loop;
 	std::unordered_set<xx::UvTcpPeer_s> peers;
-	auto listener = xx::CreateUvTcpListener(loop, "0.0.0.0", 12345);
+	auto listener = xx::TryMake<xx::UvTcpListener<>>(loop, "0.0.0.0", 12345);
 	assert(listener);
 	listener->OnAccept = [&peers](xx::UvTcpPeer_s&& peer) {
 		peer->OnReceiveRequest = [peer_w = xx::UvTcpPeer_w(peer)](int const& serial, xx::Object_s&& msg)->int {

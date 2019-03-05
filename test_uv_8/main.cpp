@@ -2,6 +2,7 @@
 
 struct EchoPeer : xx::UvTcpBasePeer {
 	xx::UvTimer_s timeouter;
+	using xx::UvTcpBasePeer::UvTcpBasePeer;
 	inline int Unpack(uint8_t* const& buf, uint32_t const& len) noexcept override {
 		timeouter->Restart();	// 重置超时时间
 		return Send(buf, len);
@@ -13,10 +14,10 @@ int main(int argc, char* argv[]) {
 		return -1;
 	}
 	xx::UvLoop loop;
-	auto listener = xx::CreateUvTcpListener<xx::UvTcpListener<EchoPeer>>(loop, "0.0.0.0", std::atoi(argv[1]));
+	auto listener = xx::TryMake<xx::UvTcpListener<EchoPeer>>(loop, "0.0.0.0", std::atoi(argv[1]));
 	listener->OnAccept = [&loop](std::shared_ptr<EchoPeer>&& peer) {
 		peer->OnDisconnect = [peer] {}; // hold memory
-		peer->timeouter = CreateUvTimer(loop, 5000, 0, [peer_w = xx::Weak(peer)]{	// 5 秒超时
+		peer->timeouter = xx::TryMake<xx::UvTimer>(loop, 5000, 0, [peer_w = xx::Weak(peer)]{	// 5 秒超时
 			peer_w.lock()->Dispose();
 		});
 	};

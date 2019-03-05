@@ -1,5 +1,6 @@
 ﻿#include "xx_uv.h"
 struct Peer : xx::UvTcpPeer {
+	using xx::UvTcpPeer::UvTcpPeer;
 	int64_t last;
 	inline int SendData() {
 		last = std::chrono::system_clock::now().time_since_epoch().count();

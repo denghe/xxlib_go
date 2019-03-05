@@ -3,22 +3,16 @@
 #include "xx_bbuffer.h"
 #include "ikcp.h"
 
-// todo: CreateXxxxx 放到外面来. 方便扩展
+// todo: 干掉所有 CreateXxxxx 和 Init. 所有创建行为都应该使用 xx::TryMake
 
 // 重要：
 // std::function 的捕获列表通常不可以随意增加引用以导致无法析构, 尽量使用 weak_ptr. 
 // 当前唯有 UvTcpPeer OnDisconnect, OnReceivePush, OnReceiveRequest 可以使用 shared_ptr 捕获, 会在 Dispose 时自动清除
 
 namespace xx {
-	struct UvTimer;
-	using UvTimer_s = std::shared_ptr<UvTimer>;
-	using UvTimer_w = std::weak_ptr<UvTimer>;
 	struct UvResolver;
 	using UvResolver_s = std::shared_ptr<UvResolver>;
 	using UvResolver_w = std::weak_ptr<UvResolver>;
-	struct UvAsync;
-	using UvAsync_s = std::shared_ptr<UvAsync>;
-	using UvAsync_w = std::weak_ptr<UvAsync>;
 	struct UvTcpPeer;
 	using UvTcpPeer_s = std::shared_ptr<UvTcpPeer>;
 	using UvTcpPeer_w = std::weak_ptr<UvTcpPeer>;
@@ -68,34 +62,39 @@ namespace xx {
 		}
 	};
 
-	// make + init + start
-	template<typename TimerType = UvTimer, typename ENABLED = std::enable_if_t<std::is_base_of_v<UvTimer, TimerType>>>
-	std::shared_ptr<TimerType> CreateUvTimer(UvLoop& loop, uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire = nullptr) noexcept;
+	// 所有 Uv 系基类
+	struct UvItem : std::enable_shared_from_this<UvItem> {
+		UvLoop& loop;
+		template<typename LoopType>
+		LoopType& LoopAs() const {
+			return *(LoopType*)&loop;
+		}
+		UvItem(UvLoop& loop) : loop(loop) {}
+		virtual ~UvItem() {}
+	};
 
-	struct UvAsync {
+	struct UvAsync : UvItem {
 		std::mutex mtx;
 		std::deque<std::function<void()>> actions;
 		std::function<void()> action;
 		uv_async_t* uvAsync = nullptr;
 
-		UvAsync() = default;
+		UvAsync(UvLoop& loop) 
+			: UvItem(loop) {
+			uvAsync = UvAlloc<uv_async_t>(this);
+			if (!uvAsync) throw -1;
+			if (int r = uv_async_init(&loop.uvLoop, uvAsync, [](uv_async_t* handle) {
+				UvGetSelf<UvAsync>(handle)->Execute();
+			})) {
+				uvAsync = nullptr;
+				throw r;
+			}
+		}
 		UvAsync(UvAsync const&) = delete;
 		UvAsync& operator=(UvAsync const&) = delete;
 
 		virtual ~UvAsync() {
 			UvHandleCloseAndFree(uvAsync);
-		}
-		inline int Init(uv_loop_t* const& loop) noexcept {
-			if (uvAsync) return 0;
-			uvAsync = UvAlloc<uv_async_t>(this);
-			if (!uvAsync) return -1;
-			if (int r = uv_async_init(loop, uvAsync, [](uv_async_t* handle) {
-				UvGetSelf<UvAsync>(handle)->Execute();
-			})) {
-				uvAsync = nullptr;
-				return r;
-			}
-			return 0;
 		}
 		int Dispatch(std::function<void()>&& action) noexcept {
 			if (!uvAsync) return -1;
@@ -114,28 +113,32 @@ namespace xx {
 			action();
 		}
 	};
+	using UvAsync_s = std::shared_ptr<UvAsync>;
+	using UvAsync_w = std::weak_ptr<UvAsync>;
 
-	struct UvTimer {
+	struct UvTimer : UvItem {
 		uv_timer_t* uvTimer = nullptr;
 		uint64_t timeoutMS = 0;
 		std::function<void()> OnFire;
 
-		UvTimer() = default;
+		UvTimer(UvLoop& loop, uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire = nullptr)
+			: UvItem(loop) {
+			uvTimer = UvAlloc<uv_timer_t>(this);
+			if (!uvTimer) throw -1;
+			if (int r = uv_timer_init(&loop.uvLoop, uvTimer)) {
+				uvTimer = nullptr;
+				throw r;
+			}
+			xx::ScopeGuard sg([this] { UvHandleCloseAndFree(uvTimer); });
+			if (Start(timeoutMS, repeatIntervalMS)) throw -2;
+			OnFire = std::move(onFire);
+			sg.Cancel();
+		}
 		UvTimer(UvTimer const&) = delete;
 		UvTimer& operator=(UvTimer const&) = delete;
 
 		virtual ~UvTimer() {
 			UvHandleCloseAndFree(uvTimer);
-		}
-		inline int Init(uv_loop_t* const& loop) noexcept {
-			if (uvTimer) return 0;
-			uvTimer = UvAlloc<uv_timer_t>(this);
-			if (!uvTimer) return -1;
-			if (int r = uv_timer_init(loop, uvTimer)) {
-				uvTimer = nullptr;
-				return r;
-			}
-			return 0;
 		}
 		inline int Start(uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS) noexcept {
 			if (!uvTimer) return -1;
@@ -160,6 +163,8 @@ namespace xx {
 			return uv_timer_again(uvTimer);
 		}
 	};
+	using UvTimer_s = std::shared_ptr<UvTimer>;
+	using UvTimer_w = std::weak_ptr<UvTimer>;
 
 	struct UvResolver;
 	struct uv_getaddrinfo_t_ex {
@@ -167,8 +172,7 @@ namespace xx {
 		std::weak_ptr<UvResolver> resolver_w;
 	};
 
-	struct UvResolver : std::enable_shared_from_this<UvResolver> {
-		UvLoop& loop;
+	struct UvResolver : UvItem {
 		uv_getaddrinfo_t_ex* req = nullptr;
 		UvTimer_s timeouter;
 		std::vector<std::string> ips;
@@ -179,7 +183,7 @@ namespace xx {
 #endif
 
 		UvResolver(UvLoop& loop) noexcept
-			: loop(loop) {
+			: UvItem(loop) {
 #ifdef __IPHONE_OS_VERSION_MIN_REQUIRED
 			hints.ai_family = PF_UNSPEC;
 			hints.ai_socktype = SOCK_STREAM;
@@ -206,8 +210,8 @@ namespace xx {
 
 		inline int SetTimeout(uint64_t const& timeoutMS = 0) {
 			if (!timeoutMS) return 0;
-			timeouter = CreateUvTimer<UvTimer>(loop, timeoutMS, 0, [self_w = std::weak_ptr<UvResolver>(shared_from_this())]{
-				if (auto self = self_w.lock()) {
+			timeouter = xx::TryMake<UvTimer>(loop, timeoutMS, 0, [self_w = xx::Weak(shared_from_this())]{
+				if (auto self = xx::As<UvResolver>(self_w.lock())) {
 					self->Cleanup();
 					if (self->OnTimeout) {
 						self->OnTimeout();
@@ -221,7 +225,7 @@ namespace xx {
 			if (int r = SetTimeout(timeoutMS)) return r;
 
 			auto req = std::make_unique<uv_getaddrinfo_t_ex>();
-			req->resolver_w = shared_from_this();
+			req->resolver_w = xx::As<UvResolver>(shared_from_this());
 			if (int r = uv_getaddrinfo((uv_loop_t*)&loop.uvLoop, (uv_getaddrinfo_t*)&req->req, [](uv_getaddrinfo_t* req_, int status, struct addrinfo* ai) {
 				auto req = std::unique_ptr<uv_getaddrinfo_t_ex>(container_of(req_, uv_getaddrinfo_t_ex, req));
 				auto resolver = req->resolver_w.lock();
@@ -269,25 +273,25 @@ namespace xx {
 		}
 	};
 
-	struct UvTcp : std::enable_shared_from_this<UvTcp> {
+	struct UvTcp : UvItem {
 		uv_tcp_t* uvTcp = nullptr;
+
+		UvTcp(UvLoop& loop)
+			: UvItem(loop) {
+			uvTcp = UvAlloc<uv_tcp_t>(this);
+			if (!uvTcp) throw -1;
+			if (int r = uv_tcp_init(&loop.uvLoop, uvTcp)) {
+				uvTcp = nullptr;
+				throw r;
+			}
+		}
+
+		virtual ~UvTcp() {
+			UvHandleCloseAndFree(uvTcp);
+		}
 
 		inline bool Disposed() noexcept {
 			return uvTcp == nullptr;
-		}
-
-		inline int Init(uv_loop_t* const& loop) noexcept {
-			if (uvTcp) return 0;
-			uvTcp = UvAlloc<uv_tcp_t>(this);
-			if (!uvTcp) return -1;
-			if (int r = uv_tcp_init(loop, uvTcp)) {
-				uvTcp = nullptr;
-				return r;
-			}
-			return 0;
-		}
-		virtual ~UvTcp() {
-			UvHandleCloseAndFree(uvTcp);
 		}
 	};
 
@@ -299,7 +303,7 @@ namespace xx {
 		Buffer buf;
 		std::function<void()> OnDisconnect;
 
-		UvTcpBasePeer() = default;
+		using UvTcp::UvTcp;
 		UvTcpBasePeer(UvTcpBasePeer const&) = delete;
 		UvTcpBasePeer& operator=(UvTcpBasePeer const&) = delete;
 
@@ -387,7 +391,7 @@ namespace xx {
 		std::unordered_map<int, std::pair<std::function<int(Object_s&& msg)>, UvTimer_s>> callbacks;
 		int serial = 0;
 
-		UvTcpPeer() = default;
+		using UvTcpBasePeer::UvTcpBasePeer;
 		UvTcpPeer(UvTcpPeer const&) = delete;
 		UvTcpPeer& operator=(UvTcpPeer const&) = delete;
 
@@ -461,7 +465,7 @@ namespace xx {
 			std::pair<std::function<int(Object_s&& msg)>, UvTimer_s> v;
 			++serial;
 			if (timeoutMS) {
-				v.second = CreateUvTimer(*container_of(uvTcp->loop, UvLoop, uvLoop), timeoutMS, 0, [this, serial = this->serial]() {
+				v.second = xx::TryMake<UvTimer>(*container_of(uvTcp->loop, UvLoop, uvLoop), timeoutMS, 0, [this, serial = this->serial]() {
 					TimeoutCallback(serial);
 				});
 				if (!v.second) return -1;
@@ -487,13 +491,33 @@ namespace xx {
 	struct UvTcpListener : UvTcp {
 		std::function<std::shared_ptr<PeerType>()> OnCreatePeer;
 		std::function<void(std::shared_ptr<PeerType>&& peer)> OnAccept;
+		sockaddr_in6 addr;
 
-		UvTcpListener() = default;
+		UvTcpListener(UvLoop& loop, std::string const& ip, int const& port, int const& backlog = 128)
+			: UvTcp(loop) {
+			if (ip.find(':') == std::string::npos) {								// ipv4
+				if (uv_ip4_addr(ip.c_str(), port, (sockaddr_in*)&addr)) throw -1;
+			}
+			else {																	// ipv6
+				if (uv_ip6_addr(ip.c_str(), port, &addr)) throw -2;
+			}
+			if (uv_tcp_bind(uvTcp, (sockaddr*)&addr, 0)) throw -3;
+
+			if (uv_listen((uv_stream_t*)uvTcp, backlog, [](uv_stream_t* server, int status) {
+				if (status) return;
+				auto self = UvGetSelf<UvTcpListener<PeerType>>(server);
+				auto peer = self->CreatePeer();
+				if (!peer) return;
+				if (uv_accept(server, (uv_stream_t*)peer->uvTcp)) return;
+				if (peer->ReadStart()) return;
+				self->Accept(std::move(peer));
+			})) throw -4;
+		};
 		UvTcpListener(UvTcpListener const&) = delete;
 		UvTcpListener& operator=(UvTcpListener const&) = delete;
 
 		inline virtual std::shared_ptr<PeerType> CreatePeer() noexcept {
-			return OnCreatePeer ? OnCreatePeer() : std::make_shared<PeerType>();
+			return OnCreatePeer ? OnCreatePeer() : xx::TryMake<PeerType>(loop);
 		}
 		inline virtual void Accept(std::shared_ptr<PeerType>&& peer) noexcept {
 			if (OnAccept) {
@@ -502,33 +526,6 @@ namespace xx {
 		};
 	};
 
-	template<typename ListenerType = UvTcpListener<>>
-	inline std::shared_ptr<ListenerType> CreateUvTcpListener(UvLoop& loop, std::string const& ip, int const& port, int const& backlog = 128) noexcept {
-		auto listener = std::make_shared<ListenerType>();
-		if (listener->Init(&loop.uvLoop)) return nullptr;
-
-		sockaddr_in6 addr;
-		if (ip.find(':') == std::string::npos) {								// ipv4
-			if (uv_ip4_addr(ip.c_str(), port, (sockaddr_in*)&addr)) return nullptr;
-		}
-		else {																	// ipv6
-			if (uv_ip6_addr(ip.c_str(), port, &addr)) return nullptr;
-		}
-		if (uv_tcp_bind(listener->uvTcp, (sockaddr*)&addr, 0)) return nullptr;
-
-		if (uv_listen((uv_stream_t*)listener->uvTcp, backlog, [](uv_stream_t* server, int status) {
-			if (status) return;
-			auto self = UvGetSelf<ListenerType>(server);
-			auto peer = self->CreatePeer();
-			if (!peer || peer->Init(server->loop)) return;
-			if (uv_accept(server, (uv_stream_t*)peer->uvTcp)) return;
-			if (peer->ReadStart()) return;
-			self->Accept(std::move(peer));
-		})) return nullptr;
-
-		return listener;
-	}
-
 	template<typename PeerType = UvTcpPeer>
 	struct UvTcpDialer;
 
@@ -536,17 +533,17 @@ namespace xx {
 	struct uv_connect_t_ex {
 		uv_connect_t req;
 		std::shared_ptr<PeerType> peer;	// temp holder
-		std::weak_ptr<UvTcpDialer<PeerType>> client_w;	// weak ref
+		std::weak_ptr<UvTcpDialer<PeerType>> dialer_w;	// weak ref
 		int serial;
 		int batchNumber;
 		~uv_connect_t_ex();
 	};
 
 	template<typename PeerType>
-	struct UvTcpDialer : std::enable_shared_from_this<UvTcpDialer<PeerType>> {
+	struct UvTcpDialer : UvItem {
+		using ThisType = UvTcpDialer<PeerType>;
 		using PeerType_s = std::shared_ptr<PeerType>;
 		using ReqType = uv_connect_t_ex<PeerType>;
-		UvLoop& loop;
 		int serial = 0;
 		std::unordered_map<int, ReqType*> reqs;
 		int batchNumber = 0;
@@ -557,7 +554,9 @@ namespace xx {
 		std::function<void()> OnConnect;
 		std::function<void()> OnTimeout;
 
-		UvTcpDialer(UvLoop& loop) noexcept : loop(loop) {}
+		UvTcpDialer(UvLoop& loop) 
+			: UvItem(loop) {
+		}
 		UvTcpDialer(UvTcpDialer const&) = delete;
 		UvTcpDialer& operator=(UvTcpDialer const&) = delete;
 
@@ -587,8 +586,8 @@ namespace xx {
 
 		inline int SetTimeout(uint64_t const& timeoutMS = 0) noexcept {
 			if (!timeoutMS) return 0;
-			timeouter = CreateUvTimer<UvTimer>(loop, timeoutMS, 0, [self_w = std::weak_ptr<UvTcpDialer>(shared_from_this())]{
-				if (auto self = self_w.lock()) {
+			timeouter = xx::TryMake<UvTimer>(loop, timeoutMS, 0, [self_w = xx::Weak(shared_from_this())]{
+				if (auto self = xx::As<UvTcpDialer>(self_w.lock())) {
 					self->Cleanup(false);
 					if (!self->peer && self->OnTimeout) {
 						self->OnTimeout();
@@ -615,15 +614,13 @@ namespace xx {
 
 			auto req = std::make_unique<ReqType>();
 			req->peer = CreatePeer();
-			if (req->peer->Init(&loop.uvLoop)) return -2;
-
-			req->client_w = shared_from_this();
+			req->dialer_w = xx::As<ThisType>(shared_from_this());
 			req->serial = ++serial;
 			req->batchNumber = batchNumber;
 
 			if (uv_tcp_connect(&req->req, req->peer->uvTcp, (sockaddr*)&addr, [](uv_connect_t* conn, int status) {
 				auto req = std::unique_ptr<ReqType>(container_of(conn, ReqType, req));
-				auto client = req->client_w.lock();
+				auto client = req->dialer_w.lock();
 				if (!client) return;
 				if (status) return;													// error or -4081 canceled
 				if (client->batchNumber > req->batchNumber) return;
@@ -655,7 +652,7 @@ namespace xx {
 		}
 
 		inline virtual PeerType_s CreatePeer() noexcept {
-			return OnCreatePeer ? OnCreatePeer() : std::make_shared<PeerType>();
+			return OnCreatePeer ? OnCreatePeer() : xx::TryMake<PeerType>(loop);
 		}
 		inline virtual void Connect() noexcept {
 			if (OnConnect) {
@@ -666,25 +663,8 @@ namespace xx {
 
 	template<typename PeerType>
 	inline uv_connect_t_ex<PeerType>::~uv_connect_t_ex() {
-		if (auto client = client_w.lock()) {
+		if (auto client = dialer_w.lock()) {
 			client->reqs.erase(serial);
 		}
-	}
-
-	inline UvAsync_s CreateUvAsync(UvLoop& loop) noexcept {
-		auto async = std::make_shared<UvAsync>();
-		if (async->Init(&loop.uvLoop)) return nullptr;
-		return async;
-	}
-
-	template<typename TimerType, typename ENABLED>
-	inline std::shared_ptr<TimerType> CreateUvTimer(UvLoop& loop, uint64_t const& timeoutMS, uint64_t const& repeatIntervalMS, std::function<void()>&& onFire) noexcept {
-		auto timer = std::make_shared<TimerType>();
-		if (timer->Init(&loop.uvLoop)) return nullptr;
-		if (onFire) {
-			timer->OnFire = std::move(onFire);
-		}
-		if (timer->Start(timeoutMS, repeatIntervalMS)) return nullptr;
-		return timer;
 	}
 }
