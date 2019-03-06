@@ -306,28 +306,33 @@ namespace xx {
 
 
 
-
 	// std::cout À©Õ¹
 
-	inline std::ostream& operator<<(std::ostream& os, const Object& o) {
+	//inline std::ostream& operator<<(std::ostream& os, const Object& o) {
+	//	std::string s;
+	//	o.ToString(s);
+	//	os << s;
+	//	return os;
+	//}
+
+	//template<typename T>
+	//std::ostream& operator<<(std::ostream& os, std::shared_ptr<T> const& o) {
+	//	if (!o) return os << "nil";
+	//	return os << *o;
+	//}
+
+	//template<typename T>
+	//std::ostream& operator<<(std::ostream& os, std::weak_ptr<T> const& o) {
+	//	if (!o) return os << "nil";
+	//	return os << *o;
+	//}
+
+	template<typename...Args>
+	inline void Cout(Args const&...args) {
 		std::string s;
-		o.ToString(s);
-		os << s;
-		return os;
+		Append(s, args...);
+		std::cout << s;
 	}
-
-	template<typename T>
-	std::ostream& operator<<(std::ostream& os, std::shared_ptr<T> const& o) {
-		if (!o) return os << "nil";
-		return os << *o;
-	}
-
-	template<typename T>
-	std::ostream& operator<<(std::ostream& os, std::weak_ptr<T> const& o) {
-		if (!o) return os << "nil";
-		return os << *o;
-	}
-
 
 
 	// make_shared, weak helpers
@@ -464,6 +469,9 @@ namespace xx {
 			);
 		}
 	};
+
+
+
 }
 
 namespace std {

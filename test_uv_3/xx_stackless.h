@@ -58,18 +58,18 @@ cors.Add([&, zs = std::make_shared<Ctx1>()](int const& lineNumber) {
 		zs->client = loop.CreateClient<TcpClient>();
 	case 1:
 	LabConnect:
-		std::cout << "connecting...\n";
+		xx::Cout("connecting...\n");
 		zs->client->Cleanup();
 		zs->client->Dial("127.0.0.1", 12345);
 		zs->t = std::chrono::system_clock::now() + std::chrono::seconds(5);
 		while (!zs->client->peer) {
 			return 2; case 2:;
 			if (std::chrono::system_clock::now() > zs->t) {		// timeout check
-				std::cout << "timeout. retry\n";
+				xx::Cout("timeout. retry\n");
 				goto LabConnect;
 			}
 		}
-		std::cout << "connected. send 'a'\n";
+		xx::Cout("connected. send 'a'\n");
 		zs->client->peer->Send("a", 1);
 
 		while (!zs->client->peer->Disposed()) {
