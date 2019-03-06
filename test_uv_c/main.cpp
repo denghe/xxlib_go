@@ -326,7 +326,7 @@ namespace xx {
 
 int main(int argc, char* argv[]) {
 	std::cout << "begin\n";
-	for (size_t i = 0; i < 99; i++)	{
+	for (size_t i = 0; i < 30; i++)	{
 		xx::UvLoop loop;
 		auto listener = xx::TryMake<xx::UvUdpKcpListener<>>(loop, "0.0.0.0", 12345);
 		assert(listener);
@@ -337,7 +337,7 @@ int main(int argc, char* argv[]) {
 			};
 		};
 
-		auto timer = xx::TryMake<xx::UvTimer>(loop, 16, 0);
+		auto timer = xx::TryMake<xx::UvTimer>(loop, 50, 0);
 		assert(timer);
 
 		auto dialer = xx::TryMake<xx::UvUdpKcpDialer<>>(loop);
