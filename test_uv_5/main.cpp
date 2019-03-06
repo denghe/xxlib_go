@@ -32,12 +32,8 @@ namespace xx {
 
 		virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen) noexcept override {
 			if (recvLen < 6) return 0;
-
-			recvBB.buf = (uint8_t*)recvBuf;
-			xx::ScopeGuard sgBuf([&] {recvBB.buf = nullptr; });	// restore buf at func exit
-			recvBB.len = recvLen;
-			recvBB.cap = recvLen;
-			recvBB.offset = 0;
+			auto& recvBB = loop.recvBB;
+			recvBB.Reset((uint8_t*)recvBuf, recvLen);
 
 			int addr = 0;
 			if (int r = recvBB.ReadFixed(addr)) return r;

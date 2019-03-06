@@ -10,14 +10,26 @@
 namespace xx {
 	struct UvLoop {
 		uv_loop_t uvLoop;
+		BBuffer recvBB;			// for replace buf memory decode package
+		std::array<char, 65536> recvBuf;	// for kcp recv
+		BBuffer sendBB;
 		UvLoop() {
 			if (int r = uv_loop_init(&uvLoop)) throw r;
 		}
 		UvLoop(UvLoop const&) = delete;
 		UvLoop& operator=(UvLoop const&) = delete;
-
+		~UvLoop() {
+			recvBB.Reset();
+			int r = uv_run(&uvLoop, UV_RUN_DEFAULT);
+			std::cout << "~UvLooop() uv_run return " << r;
+			r = uv_loop_close(&uvLoop);
+			std::cout << ", uv_loop_close return " << r << std::endl;
+		}
 		inline int Run(uv_run_mode const& mode = UV_RUN_DEFAULT) noexcept {
 			return uv_run(&uvLoop, mode);
+		}
+		inline void Stop() {
+			uv_stop(&uvLoop);
 		}
 	};
 
@@ -376,10 +388,8 @@ namespace xx {
 		}
 	};
 
-	// pack struct: [addr,] serial, data
+	// pack struct: [tar,] serial, data
 	struct UvTcpPeer : UvTcpBasePeer {
-		BBuffer recvBB;			// for replace buf memory decode package
-		BBuffer sendBB;
 		std::function<int(Object_s&& msg)> OnReceivePush;
 		std::function<int(int const& serial, Object_s&& msg)> OnReceiveRequest;
 		std::unordered_map<int, std::pair<std::function<int(Object_s&& msg)>, UvTimer_s>> callbacks;
@@ -402,11 +412,8 @@ namespace xx {
 		}
 
 		virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen) noexcept override {
-			recvBB.buf = (uint8_t*)recvBuf;
-			xx::ScopeGuard sgBuf([&] {recvBB.buf = nullptr; });	// restore buf at func exit
-			recvBB.len = recvLen;
-			recvBB.cap = recvLen;
-			recvBB.offset = 0;
+			auto& recvBB = loop.recvBB;
+			recvBB.Reset((uint8_t*)recvBuf, recvLen);
 
 			int serial = 0;
 			if (int r = recvBB.Read(serial)) return r;
@@ -429,11 +436,13 @@ namespace xx {
 		}
 
 		// serial == 0: push    > 0: response    < 0: request
-		inline int SendPackage(Object_s const& data, int32_t const& serial = 0, int const& addr = 0) {
+		inline int SendPackage(Object_s const& data, int32_t const& serial = 0, int const& tar = 0) {
 			if (Disposed()) return -1;
-			sendBB.Reserve(sizeof(uv_write_t_ex) + 4);				// skip uv_write_t_ex + header space
-			sendBB.len = sizeof(uv_write_t_ex) + 4;
-			if (addr) sendBB.WriteFixed(addr);
+			auto& sendBB = loop.sendBB;
+			static_assert(sizeof(uv_write_t_ex) + 4 <= 1024);
+			sendBB.Reserve(1024);
+			sendBB.len = sizeof(uv_write_t_ex) + 4;		// skip uv_write_t_ex + header space
+			if (tar) sendBB.WriteFixed(tar);
 			sendBB.Write(serial);
 			sendBB.WriteRoot(data);
 
@@ -446,15 +455,15 @@ namespace xx {
 			return SendReqPack(buf, (uint32_t)len);
 		}
 
-		inline int SendPush(Object_s const& data, int const& addr = 0) {
-			return SendPackage(data);
+		inline int SendPush(Object_s const& data, int const& tar = 0) {
+			return SendPackage(data, 0, tar);
 		}
 
-		inline int SendResponse(int32_t const& serial, Object_s const& data, int const& addr = 0) {
-			return SendPackage(data, serial, addr);
+		inline int SendResponse(int32_t const& serial, Object_s const& data, int const& tar = 0) {
+			return SendPackage(data, serial, tar);
 		}
 
-		inline int SendRequest(Object_s const& data, int const& addr, std::function<int(Object_s&& msg)>&& cb, uint64_t const& timeoutMS = 0) {
+		inline int SendRequest(Object_s const& data, int const& tar, std::function<int(Object_s&& msg)>&& cb, uint64_t const& timeoutMS = 0) {
 			if (Disposed()) return -1;
 			std::pair<std::function<int(Object_s&& msg)>, UvTimer_s> v;
 			++serial;
@@ -464,7 +473,7 @@ namespace xx {
 				});
 				if (!v.second) return -1;
 			}
-			if (int r = SendPackage(data, -serial, addr)) return r;
+			if (int r = SendPackage(data, -serial, tar)) return r;
 			v.first = std::move(cb);
 			callbacks[serial] = std::move(v);
 			return 0;
@@ -672,7 +681,7 @@ namespace xx {
 	struct UvUdpBasePeer : UvItem {
 		uv_udp_t* uvUdp = nullptr;
 		sockaddr_in6 addr;
-		std::array<char, 65536> recvBuf;
+		Buffer buf;
 		std::function<void()> OnDispose;
 
 		UvUdpBasePeer(UvLoop& loop, std::string const& ip, int const& port, bool isListener)
@@ -697,7 +706,7 @@ namespace xx {
 			}
 			if (int r = uv_udp_recv_start(uvUdp, UvAllocCB, [](uv_udp_t* handle, ssize_t nread, const uv_buf_t* buf, const struct sockaddr* addr, unsigned flags) {
 				if (nread > 0) {
-					nread = UvGetSelf<UvUdpBasePeer>(handle)->HandlePack((uint8_t*)buf->base, (uint32_t)nread, addr);
+					nread = UvGetSelf<UvUdpBasePeer>(handle)->Unpack((uint8_t*)buf->base, (uint32_t)nread, addr);
 				}
 				if (buf) ::free(buf->base);
 				if (nread < 0) {
@@ -724,16 +733,41 @@ namespace xx {
 			}
 		}
 
-		virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen, sockaddr const* const& addr) noexcept {
-			for (uint32_t i = 0; i < recvLen; i++) {
-				std::cout << (int)recvBuf[i] << " ";
+		virtual int Unpack(uint8_t* const& recvBuf, uint32_t const& recvLen, sockaddr const* const& addr) noexcept {
+			buf.AddRange(recvBuf, recvLen);
+			uint32_t offset = 0;
+			while (offset + 4 <= buf.len) {							// ensure header len( 4 bytes )
+				auto len = buf[offset + 0] + (buf[offset + 1] << 8) + (buf[offset + 2] << 16) + (buf[offset + 3] << 24);
+				if (len <= 0 /* || len > maxLimit */) return -1;	// invalid length
+				if (offset + 4 + len > buf.len) break;				// not enough data
+
+				offset += 4;
+				if (int r = HandlePack(buf.buf + offset, len, addr)) return r;
+				offset += len;
 			}
+			buf.RemoveFront(offset);
 			return 0;
+		}
+
+		virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen, sockaddr const* const& addr) { return 0; };
+
+		// reqbuf = uv_udp_send_t_ex space + len space + data
+		// len = data's len
+		inline int SendReqPack(uint8_t* const& reqbuf, uint32_t const& len, sockaddr const* const& addr = nullptr) {
+			reqbuf[sizeof(uv_udp_send_t_ex) + 0] = uint8_t(len);		// fill package len
+			reqbuf[sizeof(uv_udp_send_t_ex) + 1] = uint8_t(len >> 8);
+			reqbuf[sizeof(uv_udp_send_t_ex) + 2] = uint8_t(len >> 16);
+			reqbuf[sizeof(uv_udp_send_t_ex) + 3] = uint8_t(len >> 24);
+
+			auto req = (uv_udp_send_t_ex*)reqbuf;						// fill req args
+			req->buf.base = (char*)(req + 1);
+			req->buf.len = decltype(uv_buf_t::len)(len + 4);
+			return Send(req, addr);
 		}
 
 		inline int Send(uv_udp_send_t_ex* const& req, sockaddr const* const& addr = nullptr) noexcept {
 			if (!uvUdp) return -1;
-			// todo: check send queue len ? protect?  uv_stream_get_write_queue_size((uv_stream_t*)uvTcp);
+			// todo: check send queue len ? protect?
 			int r = uv_udp_send(req, uvUdp, &req->buf, 1, addr ? addr : (sockaddr*)&this->addr, [](uv_udp_send_t *req, int status) {
 				::free(req);
 			});

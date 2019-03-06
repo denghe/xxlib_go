@@ -411,9 +411,9 @@ namespace xx {
 			};
 		};
 
-		explicit Guid(bool const& fill = true) noexcept {
-			if (fill) {
-				Fill();
+		explicit Guid(bool const& gen = true) noexcept {
+			if (gen) {
+				Gen();
 			}
 			else {
 				part1 = 0;
@@ -430,7 +430,7 @@ namespace xx {
 			return part1 != o.part1 || part2 != o.part2;
 		}
 
-		void Fill() noexcept {
+		void Gen() noexcept {
 #ifdef _WIN32
 			CoCreateGuid((GUID*)this);
 #else
@@ -438,6 +438,9 @@ namespace xx {
 #endif
 		}
 		inline void Fill(char const* const& buf) noexcept {
+			memcpy(this, buf, 16);
+		}
+		inline void Fill(uint8_t const* const& buf) noexcept {
 			memcpy(this, buf, 16);
 		}
 

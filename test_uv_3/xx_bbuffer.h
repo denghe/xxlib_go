@@ -73,9 +73,10 @@ namespace xx {
 		BBuffer& operator=(BBuffer const&) = delete;
 
 		// unsafe: direct change field value( for Read )
-		inline void Reset(uint8_t* const& buf = nullptr, size_t const& len = 0, size_t const& offset = 0) {
+		inline void Reset(uint8_t* const& buf = nullptr, size_t const& len = 0, size_t const& cap = 0, size_t const& offset = 0) {
 			this->buf = buf;
 			this->len = len;
+			this->cap = cap;
 			this->offset = offset;
 		}
 
