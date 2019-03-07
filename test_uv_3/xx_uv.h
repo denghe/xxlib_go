@@ -728,7 +728,7 @@ namespace xx {
 		}
 
 		virtual ~UvUdpBasePeer() {
-			UvHandleCloseAndFree(uvUdp);
+			Dispose(false);
 		}
 
 		inline bool Disposed() noexcept {
@@ -832,11 +832,8 @@ namespace xx {
 		UvUdpKcpPeer(UvUdpKcpPeer const&) = delete;
 		UvUdpKcpPeer& operator=(UvUdpKcpPeer const&) = delete;
 
-		~UvUdpKcpPeer() {
-			if (kcp) {
-				ikcp_release(kcp);
-				kcp = nullptr;
-			}
+		virtual ~UvUdpKcpPeer() {
+			Dispose(false);
 		}
 
 		inline bool Disposed() const noexcept {
