@@ -12,7 +12,7 @@ struct Peer : xx::UvUdpKcpPeer {
 				std::cout << "timeout. retry";
 			}
 			else {
-				auto elapsedSec = double(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - last).count()) / 10000000.0;
+				auto elapsedSec = double(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - last).count()) / 1000000000.0;
 				std::cout << elapsedSec << std::endl;
 			}
 			return SendData();
