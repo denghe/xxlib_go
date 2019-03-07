@@ -2,9 +2,9 @@
 
 struct Peer : xx::UvUdpKcpPeer {
 	using xx::UvUdpKcpPeer::UvUdpKcpPeer;
-	int64_t last;
+	std::chrono::time_point<std::chrono::system_clock> last;
 	inline int SendData() {
-		last = std::chrono::system_clock::now().time_since_epoch().count();
+		last = std::chrono::system_clock::now();
 		auto msg = xx::TryMake<xx::BBuffer>();
 		assert(msg);
 		return SendRequest(msg, [this](xx::Object_s&& msg) {
@@ -12,7 +12,7 @@ struct Peer : xx::UvUdpKcpPeer {
 				std::cout << "timeout. retry";
 			}
 			else {
-				auto elapsedSec = double(std::chrono::system_clock::now().time_since_epoch().count() - last) / 10000000.0;
+				auto elapsedSec = double(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - last).count()) / 10000000.0;
 				std::cout << elapsedSec << std::endl;
 			}
 			return SendData();
