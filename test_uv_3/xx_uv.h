@@ -1046,7 +1046,7 @@ namespace xx {
 			auto iter = peers.find(g);		// 去字典中找. 没有就新建.
 			PeerType_s p = iter == peers.end() ? nullptr : iter->second.lock();
 			if (!p) {
-				p = CreatePeer(g);
+				p = this->CreatePeer(g);
 				if (!p) return 0;
 				peers[g] = p;
 			}
@@ -1104,7 +1104,7 @@ namespace xx {
 
 		int Dial(std::string const& ip, int const& port) noexcept {
 			g.Gen();
-			peer = CreatePeer(g);
+			peer = this->CreatePeer(g);
 			if (!peer) return -1;
 			xx::ScopeGuard sgPeer([&] { peer.reset(); });
 
