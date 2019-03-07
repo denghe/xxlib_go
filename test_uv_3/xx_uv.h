@@ -42,6 +42,16 @@ namespace xx {
 		}
 		UvItem(UvLoop& loop) : loop(loop) {}
 		virtual ~UvItem() {}
+
+		// 构造函数中无法使用
+		template<typename T>
+		inline std::shared_ptr<T> SharedFromThis() {
+			return As<T>(shared_from_this());
+		}
+		template<typename T>
+		inline std::weak_ptr<T> WeakFromThis() {
+			return AsWeak<T>(shared_from_this());
+		}
 	};
 
 	// utils ( 考虑移进 UvLoop )
@@ -707,6 +717,7 @@ namespace xx {
 			if (int r = uv_udp_recv_start(uvUdp, UvAllocCB, [](uv_udp_t* handle, ssize_t nread, const uv_buf_t* buf, const struct sockaddr* addr, unsigned flags) {
 				if (nread > 0) {
 					nread = UvGetSelf<UvUdpBasePeer>(handle)->Unpack((uint8_t*)buf->base, (uint32_t)nread, addr);
+					assert(!nread);
 				}
 				if (buf) ::free(buf->base);
 				if (nread < 0) {
@@ -724,7 +735,7 @@ namespace xx {
 			return uvUdp == nullptr;
 		}
 
-		inline virtual void Dispose(bool callback = false) {
+		inline virtual void Dispose(bool callback = false) noexcept {
 			if (!uvUdp) return;
 			UvHandleCloseAndFree(uvUdp);
 			if (callback && OnDispose) {
@@ -810,6 +821,7 @@ namespace xx {
 			xx::ScopeGuard sgKcp([&] { ikcp_release(kcp); kcp = nullptr; });
 			if (int r = ikcp_wndsize(kcp, 128, 128)) throw r;
 			if (int r = ikcp_nodelay(kcp, 1, 10, 2, 1)) throw r;
+			//kcp->rx_minrto = 10;
 			ikcp_setoutput(kcp, [](const char *inBuf, int len, ikcpcb *kcp, void *user)->int {
 				//xx::Cout("ikcp_setoutput send len = ", len, "\n");
 				auto self = ((UvUdpKcpPeer*)user);
@@ -990,7 +1002,7 @@ namespace xx {
 
 		UvUdpKcpListener(UvLoop& loop, std::string const& ip, int const& port)
 			: UvUdpBasePeerKcpEx<PeerType>(loop, ip, port, true) {
-			updater = xx::Make<UvTimer>(loop, 10, 10, [this] {
+			updater = xx::Make<UvTimer>(loop, 10, 16, [this] {
 				auto elapsedMS = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - createTime).count();
 				for (decltype(auto) kv : peers) {		// todo: timeout check?
 					auto peer = kv.second.lock();

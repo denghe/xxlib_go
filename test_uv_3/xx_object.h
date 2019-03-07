@@ -379,6 +379,10 @@ namespace xx {
 	std::shared_ptr<T>& As(std::shared_ptr<U>& v) {
 		return *(std::shared_ptr<T>*)&v;
 	}
+	template<typename T, typename U>
+	std::weak_ptr<T> AsWeak(std::shared_ptr<U>& v) {
+		return std::weak_ptr<T>(As<T>(v));
+	}
 
 
 	// helpers
@@ -458,8 +462,8 @@ namespace xx {
 	struct SFuncs<Guid, void> {
 		static inline void WriteTo(std::string& s, Guid const& in) noexcept {
 			auto offset = s.size();
-			s.resize(offset + 48);
-			snprintf(s.data() + offset, 48,
+			s.resize(offset + 37);
+			snprintf(s.data() + offset, 37,
 				"%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X",
 				in.data1, in.data2, in.data3,
 				in.data4[0], in.data4[1],
@@ -467,6 +471,7 @@ namespace xx {
 				in.data4[4], in.data4[5],
 				in.data4[6], in.data4[7]
 			);
+			s.resize(s.size() - 1);	// remove \0
 		}
 	};
 

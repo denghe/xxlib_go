@@ -65,7 +65,7 @@ int main(int argc, char* argv[]) {
 
 	for (int i = 0; i < 1000; i++)
 	{
-		if (i % 100 == 0) client->Send("a", 1);
+		client->Send("a", 100);
 		server->Update(i * 10);
 		client->Update(i * 10);
 	}
