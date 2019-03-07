@@ -996,7 +996,7 @@ namespace xx {
 
 	template<typename PeerType = UvUdpKcpPeer>
 	struct UvUdpKcpListener : UvUdpBasePeerKcpEx<PeerType> {
-		std::function<void(PeerType_s& peer)> OnAccept;
+		std::function<void(std::shared_ptr<PeerType>& peer)> OnAccept;
 		std::unordered_map<xx::Guid, std::weak_ptr<PeerType>> peers;
 		std::vector<xx::Guid> dels;
 
