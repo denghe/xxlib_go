@@ -354,7 +354,7 @@ namespace xx {
 	}
 
 	template<typename T>
-	std::weak_ptr<T> Weak(std::shared_ptr<T>& v) {
+	std::weak_ptr<T> Weak(std::shared_ptr<T> const& v) {
 		return std::weak_ptr<T>(v);
 	}
 
@@ -376,11 +376,11 @@ namespace xx {
 
 	// unsafe
 	template<typename T, typename U>
-	std::shared_ptr<T>& As(std::shared_ptr<U>& v) {
+	std::shared_ptr<T>& As(std::shared_ptr<U> const& v) {
 		return *(std::shared_ptr<T>*)&v;
 	}
 	template<typename T, typename U>
-	std::weak_ptr<T> AsWeak(std::shared_ptr<U>& v) {
+	std::weak_ptr<T> AsWeak(std::shared_ptr<U> const& v) {
 		return std::weak_ptr<T>(As<T>(v));
 	}
 
