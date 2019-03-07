@@ -996,7 +996,8 @@ namespace xx {
 
 	template<typename PeerType = UvUdpKcpPeer>
 	struct UvUdpKcpListener : UvUdpBasePeerKcpEx<PeerType> {
-		std::function<void(std::shared_ptr<PeerType>& peer)> OnAccept;
+		using PeerType_s = std::shared_ptr<PeerType>;
+		std::function<void(PeerType_s& peer)> OnAccept;
 		std::unordered_map<xx::Guid, std::weak_ptr<PeerType>> peers;
 		std::vector<xx::Guid> dels;
 
@@ -1038,7 +1039,7 @@ namespace xx {
 			// header 至少有 36 字节长( Guid conv 的 kcp 头 )
 			// 少于 36 的直接 echo 回去方便探测 ping 值( todo: 应对被伪造目标地址指向别处的请况 )
 			if (recvLen < 36) {
-				return Send(recvBuf, recvLen, addr);
+				return this->Send(recvBuf, recvLen, addr);
 			}
 			Guid g(false);
 			g.Fill(recvBuf);				// 前 16 字节转为 Guid
@@ -1063,6 +1064,7 @@ namespace xx {
 
 	template<typename PeerType = UvUdpKcpPeer>
 	struct UvUdpKcpDialer : UvUdpBasePeerKcpEx<PeerType> {
+		using PeerType_s = std::shared_ptr<PeerType>;
 		std::function<void()> OnConnect;
 		xx::Guid g;
 		PeerType_s peer;
