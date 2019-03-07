@@ -4,8 +4,7 @@ struct Peer : xx::UvTcpPeer {
 	int64_t last;
 	inline int SendData() {
 		last = std::chrono::system_clock::now().time_since_epoch().count();
-		auto msg = xx::TryMake<xx::BBuffer>();
-		assert(msg);
+		auto msg = xx::Make<xx::BBuffer>();
 		return SendRequest(msg, [this](xx::Object_s&& msg) {
 			if (!msg) {
 				std::cout << "timeout. retry";
@@ -24,8 +23,7 @@ int main(int argc, char* argv[]) {
 		return -1;
 	}
 	xx::UvLoop loop;
-	auto dialer = xx::TryMake<xx::UvTcpDialer<Peer>>(loop);
-	assert(dialer);
+	auto dialer = xx::Make<xx::UvTcpDialer<Peer>>(loop);
 	dialer->OnConnect = [&dialer] {
 		dialer->peer->SendData();
 	};
