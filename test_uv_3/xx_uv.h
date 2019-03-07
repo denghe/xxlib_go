@@ -1002,7 +1002,7 @@ namespace xx {
 
 		UvUdpKcpListener(UvLoop& loop, std::string const& ip, int const& port)
 			: UvUdpBasePeerKcpEx<PeerType>(loop, ip, port, true) {
-			updater = xx::Make<UvTimer>(loop, 10, 16, [this] {
+			this->updater = xx::Make<UvTimer>(loop, 10, 16, [this] {
 				auto elapsedMS = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - createTime).count();
 				for (decltype(auto) kv : peers) {		// todo: timeout check?
 					auto peer = kv.second.lock();
