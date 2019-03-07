@@ -813,7 +813,7 @@ namespace xx {
 		Buffer buf;
 		sockaddr_in6 addr;		// for Send. fill by owner Unpack
 
-		UvUdpKcpPeer(UvUdpBasePeer* owner, Guid const& g)
+		UvUdpKcpPeer(UvUdpBasePeer* const& owner, Guid const& g)
 			: UvItem(owner->loop)
 			, owner(owner) {
 			kcp = ikcp_create(g, this);
@@ -833,7 +833,9 @@ namespace xx {
 		UvUdpKcpPeer& operator=(UvUdpKcpPeer const&) = delete;
 
 		virtual ~UvUdpKcpPeer() {
-			Dispose(false);
+			if (!kcp) return;
+			ikcp_release(kcp);
+			kcp = nullptr;
 		}
 
 		inline bool Disposed() const noexcept {

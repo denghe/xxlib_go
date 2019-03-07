@@ -1,12 +1,11 @@
 ﻿#include "xx_uv.h"
 
+auto msg = xx::Make<xx::BBuffer>();
 struct Peer : xx::UvUdpKcpPeer {
 	using xx::UvUdpKcpPeer::UvUdpKcpPeer;
 	std::chrono::time_point<std::chrono::system_clock> last;
 	inline int SendData() {
 		last = std::chrono::system_clock::now();
-		auto msg = xx::TryMake<xx::BBuffer>();
-		assert(msg);
 		return SendRequest(msg, [this](xx::Object_s&& msg) {
 			if (!msg) {
 				std::cout << "timeout. retry";
