@@ -376,6 +376,7 @@ namespace xx {
 
 	template<typename T, typename U>
 	std::shared_ptr<T> As(std::shared_ptr<U> const& v) {
+		//return *(std::shared_ptr<T>*)&v;	// unsafe
 		return std::dynamic_pointer_cast<T>(v);
 	}
 	template<typename T, typename U>

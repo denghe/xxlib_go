@@ -122,6 +122,7 @@ namespace xx {
 		template<typename T>
 		void WriteRoot(std::shared_ptr<T> const& v) noexcept {
 			offsetRoot = len;
+			assert(ptrs.empty());
 			Write(v);
 			ptrs.clear();
 		}
@@ -129,6 +130,8 @@ namespace xx {
 		template<typename T>
 		int ReadRoot(std::shared_ptr<T>& v) noexcept {
 			offsetRoot = offset;
+			assert(objIdxs.empty());
+			assert(strIdxs.empty());
 			int r = Read(v);
 			objIdxs.clear();
 			strIdxs.clear();
