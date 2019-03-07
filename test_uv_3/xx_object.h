@@ -374,10 +374,9 @@ namespace xx {
 		return v;
 	}
 
-	// unsafe
 	template<typename T, typename U>
-	std::shared_ptr<T>& As(std::shared_ptr<U> const& v) {
-		return *(std::shared_ptr<T>*)&v;
+	std::shared_ptr<T> As(std::shared_ptr<U> const& v) {
+		return std::dynamic_pointer_cast<T>(v);
 	}
 	template<typename T, typename U>
 	std::weak_ptr<T> AsWeak(std::shared_ptr<U> const& v) {
