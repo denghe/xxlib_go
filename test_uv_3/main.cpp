@@ -4,8 +4,33 @@
 #include <iostream>
 #include <thread>
 
-struct MyDialer : xx::UvTcpDialer<xx::UvTcpPeer> {
-	using BaseType = xx::UvTcpDialer<xx::UvTcpPeer>;
+struct EchoPeer : xx::UvTcpPeer {
+	std::shared_ptr<EchoPeer> holder;
+
+	using xx::UvTcpPeer::UvTcpPeer;
+	inline virtual void OnDisconnect() noexcept override {
+		holder.reset();
+	}
+	inline virtual int OnReceivePush(xx::Object_s&& msg) noexcept override {
+		return SendPush(msg);
+	}
+	inline virtual int OnReceiveRequest(int const& serial, xx::Object_s&& msg) noexcept override {
+		return SendResponse(serial, msg);
+	}
+};
+
+void RunEchoServer() {
+	xx::Uv uv;
+	auto listener = xx::Make<xx::UvTcpListener<EchoPeer>>(uv, "0.0.0.0", 12345);
+	listener->OnAccept = [](std::shared_ptr<EchoPeer>&& peer) {
+		peer->holder = std::move(peer);
+	};
+	uv.Run();
+	std::cout << "server end.\n";
+}
+
+struct MyDialer : xx::UvTcpDialer<> {
+	using BaseType = xx::UvTcpDialer<>;
 	using BaseType::BaseType;
 	int counter = 0;
 	std::chrono::time_point<std::chrono::system_clock> t = std::chrono::system_clock::now();
@@ -25,44 +50,26 @@ struct MyDialer : xx::UvTcpDialer<xx::UvTcpPeer> {
 	}
 };
 
-void RunServer() {
-	xx::UvLoop loop;
-	std::unordered_set<xx::UvTcpPeer_s> peers;
-	auto listener = xx::TryMake<xx::UvTcpListener<>>(loop, "0.0.0.0", 12345);
-	assert(listener);
-	listener->OnAccept = [&peers](xx::UvTcpPeer_s&& peer) {
-		peer->OnReceiveRequest = [peer_w = xx::UvTcpPeer_w(peer)](int const& serial, xx::Object_s&& msg)->int {
-			return peer_w.lock()->SendResponse(serial, msg);
-		};
-		peer->OnDisconnect = [&peers, peer_w = xx::UvTcpPeer_w(peer)]{
-			peers.erase(peer_w.lock());
-		};
-		peers.insert(std::move(peer));
-	};
-	loop.Run();
-	std::cout << "server end.\n";
-}
 
 int main() {
-	std::thread t1([] { RunServer(); });
+	std::thread t1([] { RunEchoServer(); });
 	std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-	xx::UvLoop loop;
-	auto client = xx::TryMake<MyDialer>(loop);
-	assert(client);
-	client->OnConnect = [client_w = xx::Weak(client)]{
-		auto msg = xx::TryMake<xx::BBuffer>();
-		assert(msg);
+	xx::Uv uv;
+	auto client = xx::Make<MyDialer>(uv);
+	client->OnConnect = [client_w = xx::Weak(client)] (xx::UvTcpPeer_s& peer) {
+		if (!peer) {
+			std::cout << "dial timeout.\n";
+			return;
+		}
+		auto msg = xx::Make<xx::BBuffer>();
 		msg->Write(1u, 2u, 3u, 4u, 5u);
 		client_w.lock()->peer->SendRequest(msg, [client_w] (xx::Object_s&&msg) {
 			return client_w.lock()->HandleMsg(std::move(msg));
 		}, 0);
 	};
-	client->OnTimeout = [] {
-		std::cout << "dial timeout.\n";
-	};
 	client->Dial("127.0.0.1", 12345, 2000);
-	loop.Run();
+	uv.Run();
 	std::cout << "client end.\n";
 	return 0;
 }

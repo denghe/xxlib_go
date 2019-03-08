@@ -1,12 +1,17 @@
 ﻿#include "xx_uv.h"
 
+// todo: 已知问题, server 重启后似乎无法恢复
+
 auto msg = xx::Make<xx::BBuffer>();
 struct Peer : xx::UvUdpKcpPeer {
-	using xx::UvUdpKcpPeer::UvUdpKcpPeer;
 	std::chrono::time_point<std::chrono::system_clock> last;
-	inline int SendData() {
+
+	using xx::UvUdpKcpPeer::UvUdpKcpPeer;
+	~Peer() { if (!this->Disposed()) this->Dispose(); }
+
+	inline void SendData() {
 		last = std::chrono::system_clock::now();
-		return SendRequest(msg, [this](xx::Object_s&& msg) {
+		SendRequest(msg, [this](xx::Object_s&& msg) {
 			if (!msg) {
 				std::cout << "timeout. retry";
 			}
@@ -14,55 +19,26 @@ struct Peer : xx::UvUdpKcpPeer {
 				auto elapsedSec = double(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - last).count()) / 1000000000.0;
 				std::cout << elapsedSec << std::endl;
 			}
-			return SendData();
+			SendData();
+			return 0;
 		}, 2000);
 	}
 };
+
 int main(int argc, char* argv[]) {
 	if (argc < 3) {
 		std::cout << "need args: ip port\n";
 		return -1;
 	}
-	xx::UvLoop loop;
+	xx::Uv loop;
 	auto dialer = xx::Make<xx::UvUdpKcpDialer<Peer>>(loop);
-	dialer->OnConnect = [&dialer] {
-		dialer->peer->SendData();
+	dialer->OnConnect = [&dialer] (std::shared_ptr<Peer>& peer){
+		if (peer) {
+			peer->SendData();
+		}
 	};
 	dialer->Dial(argv[1], std::atoi(argv[2]));
 	loop.Run();
 	std::cout << "end.";
 	return 0;
 }
-
-//int main(int argc, char* argv[]) {
-//	if (argc < 3) {
-//		std::cout << "need args: ip port\n";
-//		return -1;
-//	}
-//	xx::UvLoop loop;
-//	int count = 0;
-//	std::chrono::time_point<std::chrono::system_clock> lastTime = std::chrono::system_clock::now();
-//	auto dialer = xx::Make<xx::UvUdpKcpDialer<>>(loop);
-//	dialer->OnConnect = [&] {
-//		dialer->peer->OnDisconnect = [] {
-//			xx::Cout("disconnected.\n");
-//		};
-//		dialer->peer->OnReceivePush = [&](xx::Object_s&& msg)->int {
-//			if (++count > 100) {
-//				xx::Cout(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - lastTime).count(), "\n");
-//				return -1;
-//			}
-//			int r = dialer->peer->SendPush(msg);		// echo
-//			//dialer->peer->Flush();
-//			return r;
-//		};
-//		auto msg = xx::Make<xx::BBuffer>();
-//		msg->Write(1, 2, 3, 4, 5);
-//		for (int i = 0; i < 1; ++i) {
-//			dialer->peer->SendPush(msg);
-//		}
-//	};
-//	dialer->Dial(argv[1], std::atoi(argv[2]));
-//	loop.Run();
-//	return 0;
-//}
