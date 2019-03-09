@@ -1080,10 +1080,10 @@ namespace xx {
 					peer->Dispose(flag);
 				}
 			}
-			Uv::HandleCloseAndFree(uvUdp);
+			Uv::HandleCloseAndFree(this->uvUdp);
 			if (flag) {
-				Disconnect();		// maybe unhold memory here
-				OnDisconnect = nullptr;
+				this->Disconnect();		// maybe unhold memory here
+				this->OnDisconnect = nullptr;
 				OnAccept = nullptr;
 			}
 		}
@@ -1151,10 +1151,10 @@ namespace xx {
 				peer.reset();
 			}
 			timer.reset();
-			Uv::HandleCloseAndFree(uvUdp);
+			Uv::HandleCloseAndFree(this->uvUdp);
 			if (flag) {
-				Disconnect();		// maybe unhold memory here
-				OnDisconnect = nullptr;
+				this->Disconnect();		// maybe unhold memory here
+				this->OnDisconnect = nullptr;
 				OnConnect = nullptr;
 			}
 		}
