@@ -866,6 +866,7 @@ namespace xx {
 
 		// send data immediately ( no wait for more data combine send )
 		inline void Flush() {
+			if (!kcp) return;
 			ikcp_flush(kcp);
 		}
 

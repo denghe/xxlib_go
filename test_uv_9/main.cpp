@@ -22,13 +22,13 @@ int main(int argc, char* argv[]) {
 		std::cout << "need args: ip port\n";
 		return -1;
 	}
-	xx::UvLoop loop;
-	auto dialer = xx::Make<xx::UvTcpDialer<Peer>>(loop);
+	xx::Uv uv;
+	auto dialer = xx::Make<xx::UvTcpDialer<Peer>>(uv);
 	dialer->OnConnect = [&dialer] {
 		dialer->peer->SendData();
 	};
 	dialer->Dial(argv[1], std::atoi(argv[2]));
-	loop.Run();
+	uv.Run();
 	std::cout << "end.";
 	return 0;
 }
