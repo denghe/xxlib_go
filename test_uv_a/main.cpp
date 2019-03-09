@@ -2,30 +2,35 @@
 
 struct EchoPeer : xx::UvUdpKcpPeer {
 	using BaseType = xx::UvUdpKcpPeer;
-	xx::UvTimer_s timeouter;				// 两秒内没数据的连接杀掉
+	using BaseType::BaseType;
+
 	std::shared_ptr<EchoPeer> holder;
-
-	EchoPeer(xx::UvUdpBasePeer* const& owner, xx::Guid const& g)
-		: BaseType(owner, g) {
-		timeouter = xx::Make<xx::UvTimer>(loop);
-		if (int r = timeouter->Start(2000, 0, [this] {
-			Dispose();	// unhold memory
-			xx::Cout("timeout. peer dispose\n");
-		})) throw r;
+	virtual void Disconnect() noexcept override {
+		xx::Cout(g, " disconnected.\n");
+		holder = nullptr;					// release peer
 	}
-
-	virtual void OnDisconnect() noexcept override {
-		holder = nullptr;		// unhold memory
-	}
-	virtual int OnReceivePush(xx::Object_s&& msg) noexcept override {
+	virtual int ReceivePush(xx::Object_s&& msg) noexcept override {
 		if (int r = this->SendPush(msg)) return r;
 		//peer->Flush();
-		return timeouter->Restart();
+		this->ResetLastReceiveMS();
+		return 0;
 	}
-	virtual int OnReceiveRequest(int const& serial, xx::Object_s&& msg) noexcept override {
+	virtual int ReceiveRequest(int const& serial, xx::Object_s&& msg) noexcept override {
 		if (int r = this->SendResponse(serial, msg)) return r;
 		//peer->Flush();
-		return timeouter->Restart();
+		this->ResetLastReceiveMS();
+		return 0;
+	}
+};
+
+struct EchoPeerListener : xx::UvUdpKcpListener<EchoPeer> {
+	using BaseType = xx::UvUdpKcpListener<EchoPeer>;
+	using BaseType::BaseType;
+
+	inline virtual void Accept(std::shared_ptr<EchoPeer>& peer) noexcept override {
+		peer->holder = peer;				// hold memory
+		peer->SetReceiveTimeoutMS(3000);	// 设置 3 秒内没收到能解析出来的合法包就 Dispose
+		xx::Cout(peer->g, " accepted.\n");
 	}
 };
 
@@ -35,11 +40,7 @@ int main(int argc, char* argv[]) {
 		return -1;
 	}
 	xx::Uv uv;
-	auto listener = xx::Make<xx::UvUdpKcpListener<EchoPeer>>(uv, "0.0.0.0", std::atoi(argv[1]));
-	listener->OnAccept = [&uv](std::shared_ptr<EchoPeer>& peer) {
-		peer->holder = peer;	// hold memory
-		xx::Cout(peer->kcp->conv, " accepted.\n");
-	};
+	auto listener = xx::Make<EchoPeerListener>(uv, "0.0.0.0", std::atoi(argv[1]));
 	uv.Run();
 	return 0;
 }

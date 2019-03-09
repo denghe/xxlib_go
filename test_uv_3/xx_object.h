@@ -333,6 +333,11 @@ namespace xx {
 		Append(s, args...);
 		std::cout << s;
 	}
+	template<typename...Args>
+	inline void CoutN(Args const&...args) {
+		Cout(args...);
+		std::cout << std::endl;
+	}
 
 
 	// make_shared, weak helpers

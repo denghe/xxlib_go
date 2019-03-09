@@ -4,75 +4,102 @@
 #include <iostream>
 #include <thread>
 
-struct EchoPeer : xx::UvTcpPeer {
-	std::shared_ptr<EchoPeer> holder;
+struct EchoServerPeer : xx::UvTcpPeer {
+	using BaseType = xx::UvTcpPeer;
+	using BaseType::BaseType;
 
-	using xx::UvTcpPeer::UvTcpPeer;
-	inline virtual void OnDisconnect() noexcept override {
+	std::shared_ptr<EchoServerPeer> holder;
+	inline virtual void Disconnect() noexcept override {
 		holder.reset();
 	}
-	inline virtual int OnReceivePush(xx::Object_s&& msg) noexcept override {
+	inline virtual int ReceivePush(xx::Object_s&& msg) noexcept override {
 		return SendPush(msg);
 	}
-	inline virtual int OnReceiveRequest(int const& serial, xx::Object_s&& msg) noexcept override {
+	inline virtual int ReceiveRequest(int const& serial, xx::Object_s&& msg) noexcept override {
 		return SendResponse(serial, msg);
 	}
 };
-
-void RunEchoServer() {
-	xx::Uv uv;
-	auto listener = xx::Make<xx::UvTcpListener<EchoPeer>>(uv, "0.0.0.0", 12345);
-	listener->OnAccept = [](std::shared_ptr<EchoPeer>&& peer) {
-		peer->holder = std::move(peer);
-	};
-	uv.Run();
-	std::cout << "server end.\n";
-}
-
-struct MyDialer : xx::UvTcpDialer<> {
-	using BaseType = xx::UvTcpDialer<>;
+struct EchoPeerListener : xx::UvTcpListener<EchoServerPeer> {
+	using BaseType = xx::UvTcpListener<EchoServerPeer>;
 	using BaseType::BaseType;
+
+	inline virtual void Accept(std::shared_ptr<EchoServerPeer>& peer) noexcept override {
+		peer->holder = peer;
+	}
+};
+
+
+struct EchoDialerPeer : xx::UvTcpPeer {
+	using BaseType = xx::UvTcpPeer;
+	using BaseType::BaseType;
+
 	int counter = 0;
 	std::chrono::time_point<std::chrono::system_clock> t = std::chrono::system_clock::now();
 	int HandleMsg(xx::Object_s&& msg) {
 		if (!msg) return -1;
-		//auto bb = std::dynamic_pointer_cast<BBuffer>(msg);
-		//if (!bb) return -1;
-		//std::cout << bb->GetTypeId() << std::endl;
-		//std::cout << bb->ToString() << std::endl;
+		//xx::Cout(msg);
 		if (++counter > 100000) {
 			std::cout << double(std::chrono::nanoseconds(std::chrono::system_clock::now() - t).count()) / 1000000000 << std::endl;
 			return -1;
 		}
-		return peer->SendRequest(msg, [this](xx::Object_s&&msg) {
+		return SendRequest(msg, [this](xx::Object_s&&msg) {
 			return HandleMsg(std::move(msg));
-		}, 1000);
+		}, 2000);
 	}
 };
+struct EchoDialer : xx::UvTcpDialer<EchoDialerPeer> {
+	using BaseType = xx::UvTcpDialer<EchoDialerPeer>;
+	using BaseType::BaseType;
 
-
-int main() {
-	std::thread t1([] { RunEchoServer(); });
-	std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-	xx::Uv uv;
-	auto client = xx::Make<MyDialer>(uv);
-	client->OnConnect = [client_w = xx::Weak(client)] (xx::UvTcpPeer_s& peer) {
+	inline virtual void Connect() noexcept override {
 		if (!peer) {
 			std::cout << "dial timeout.\n";
 			return;
 		}
 		auto msg = xx::Make<xx::BBuffer>();
 		msg->Write(1u, 2u, 3u, 4u, 5u);
-		client_w.lock()->peer->SendRequest(msg, [client_w] (xx::Object_s&&msg) {
-			return client_w.lock()->HandleMsg(std::move(msg));
-		}, 0);
-	};
-	client->Dial("127.0.0.1", 12345, 2000);
-	uv.Run();
-	std::cout << "client end.\n";
+		peer->HandleMsg(std::move(msg));
+	}
+};
+
+
+int main() {
+	std::thread t1([] {
+		xx::Uv uv;
+		auto listener = xx::Make<EchoPeerListener>(uv, "0.0.0.0", 12345);
+		uv.Run();
+		std::cout << "server end.\n";
+	});
+	std::thread t2([] {
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		xx::Uv uv;
+		auto client = xx::Make<EchoDialer>(uv);
+		client->Dial("127.0.0.1", 12345, 5000);
+		uv.Run();
+		std::cout << "client end.\n";
+	});
+	t1.join();
+	t2.join();
 	return 0;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
