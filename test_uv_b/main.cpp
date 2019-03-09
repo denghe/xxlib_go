@@ -15,13 +15,14 @@ struct Peer : xx::UvUdpKcpPeer {
 				xx::CoutN("timeout ( 2000ms ). retry");
 			}
 			else {
-				this->ResetLastReceiveMS();
+				ResetLastReceiveMS();
 				auto elapsedSec = double(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - last).count()) / 1000000000.0;
 				std::cout << elapsedSec << std::endl;
 			}
 			SendData();
 			return 0;
 		}, 2000);
+		Flush();
 	}
 };
 

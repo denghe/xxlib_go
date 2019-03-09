@@ -10,15 +10,15 @@ struct EchoPeer : xx::UvUdpKcpPeer {
 		holder = nullptr;					// release peer
 	}
 	virtual int ReceivePush(xx::Object_s&& msg) noexcept override {
-		if (int r = this->SendPush(msg)) return r;
-		//peer->Flush();
-		this->ResetLastReceiveMS();
+		if (int r = SendPush(msg)) return r;
+		Flush();
+		ResetLastReceiveMS();
 		return 0;
 	}
 	virtual int ReceiveRequest(int const& serial, xx::Object_s&& msg) noexcept override {
-		if (int r = this->SendResponse(serial, msg)) return r;
-		//peer->Flush();
-		this->ResetLastReceiveMS();
+		if (int r = SendResponse(serial, msg)) return r;
+		Flush();
+		ResetLastReceiveMS();
 		return 0;
 	}
 };
