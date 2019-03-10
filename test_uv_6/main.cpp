@@ -9,9 +9,7 @@ using Peer_s = std::shared_ptr<Peer>;
 struct Dialer;
 using Dialer_s = std::shared_ptr<Dialer>;
 
-struct Loop : xx::UvLoop {
-	xx::BBuffer readBB;		// for replace buf memory decode package
-	xx::BBuffer writeBB;
+struct Loop : xx::Uv {
 	int addr = 0;			// for gen client peer addr
 	std::unordered_map<int, Peer_s> clientPeers;
 	std::unordered_map<int, Peer_s> serverPeers;
@@ -21,9 +19,6 @@ struct Loop : xx::UvLoop {
 	int RegisterDialer(int const& addr, std::string&& ip, int const& port) noexcept;
 
 	Loop();
-	~Loop() {
-		readBB.Reset();
-	}
 };
 
 // 包结构: addr(4), data( serial + pkg )
@@ -37,19 +32,19 @@ struct Peer : xx::UvTcpBasePeer {
 	Peer& operator=(Peer const&) = delete;
 
 	virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen) noexcept {
-		loop->readBB.Reset(recvBuf, recvLen, 0);
+		loop->recvBB.Reset(recvBuf, recvLen, 0);
 
 		decltype(addr) tar = 0;
-		if (int r = loop->readBB.ReadFixed(tar)) return r;
+		if (int r = loop->recvBB.ReadFixed(tar)) return r;
 
 		auto iter = peers->find(tar);
 		if (iter != peers->end()) {
-			if (loop->readBB.offset == recvLen) {		// 如果是握手包( 4字节长度 ), 获取 ip 发给目标服务器
-				loop->writeBB.Clear();
-				loop->writeBB.WriteFixed(addr);
-				loop->writeBB.Write((uint8_t)0, (uint8_t)0);	// serial, typeId
+			if (loop->recvBB.offset == recvLen) {		// 如果是握手包( 4字节长度 ), 获取 ip 发给目标服务器
+				loop->sendBB.Clear();
+				loop->sendBB.WriteFixed(addr);
+				loop->sendBB.Write((uint8_t)0, (uint8_t)0);	// serial, typeId
 				// todo: Write( GetIP() );						// \0 结尾字串
-				return iter->second->Send(loop->writeBB.buf, loop->writeBB.len);
+				return iter->second->Send(loop->sendBB.buf, loop->sendBB.len);
 			}
 			else {
 				memcpy(recvBuf, &addr, sizeof(addr));	// replace
@@ -88,7 +83,7 @@ struct Listener : xx::UvTcpListener<Peer> {
 	Listener(Listener const&) = delete;
 	Listener& operator=(Listener const&) = delete;
 
-	inline virtual void Accept(std::shared_ptr<Peer>&& peer) noexcept override {
+	inline virtual void Accept(std::shared_ptr<Peer>& peer) noexcept override {
 		peer->addr = ++loop->addr;
 		peer->peers = &loop->clientPeers;
 		peer->loop = loop;
@@ -97,14 +92,15 @@ struct Listener : xx::UvTcpListener<Peer> {
 };
 
 inline Loop::Loop()
-	: UvLoop() {
+	: Uv() {
 	listener = xx::TryMake<Listener>(*this, "0.0.0.0", 10000);
 	if (listener) {
 		listener->loop = this;
 		std::cout << "router started...";
 	}
 
-	timer = xx::TryMake<xx::UvTimer>(*this, 100, 500, [this] {
+	timer = xx::Make<xx::UvTimer>(*this);
+	if (int r = timer->Start(100, 500, [this] {
 		//if (dialers.empty()) {
 		//	listener.reset();
 		//	timer.reset();
@@ -115,8 +111,7 @@ inline Loop::Loop()
 				kv.second->Dial();
 			}
 		}
-	});
-	if (!timer) throw - 1;
+	})) throw r;
 }
 
 inline int Loop::RegisterDialer(int const& addr, std::string&& ip, int const& port) noexcept {

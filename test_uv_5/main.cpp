@@ -32,7 +32,7 @@ namespace xx {
 
 		virtual int HandlePack(uint8_t* const& recvBuf, uint32_t const& recvLen) noexcept override {
 			if (recvLen < 6) return 0;
-			auto& recvBB = loop.recvBB;
+			auto& recvBB = uv.recvBB;
 			recvBB.Reset((uint8_t*)recvBuf, recvLen);
 
 			int addr = 0;
@@ -84,7 +84,7 @@ namespace xx {
 				return r;
 			}
 		}
-		virtual void Dispose(bool callback = true) noexcept override;
+		virtual void Dispose(int const& flag = 0) noexcept override;
 	};
 	using RouterPeer_s = std::shared_ptr<RouterPeer>;
 	using RouterPeer_w = std::weak_ptr<RouterPeer>;
@@ -111,11 +111,11 @@ namespace xx {
 	//	}
 	//};
 
-	inline void RouterPeer::Dispose(bool callback) noexcept {
-		if (!uvTcp) return;
-		this->UvTcpBasePeer::Dispose(callback);
-		peers.clear();
-	}
+	//inline void RouterPeer::Dispose(int const& flag = 0) noexcept {
+	//	if (!uvTcp) return;
+	//	this->UvTcpBasePeer::Dispose(flag);
+	//	peers.clear();
+	//}
 
 	//struct VDialer;
 	//using VDialer_s = std::shared_ptr<VDialer>;
